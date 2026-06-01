@@ -1,0 +1,38 @@
+version: "0.2"
+ignorePaths: []
+dictionaryDefinitions: []
+dictionaries: []
+words:
+  - aacs
+  - apdefs_h
+  - bdsvm
+  - blkid
+  - bluray
+  - CDROM
+  - CINFO
+  - DATAERR
+  - DEVNAME
+  - exitcode
+  - fileapi
+  - filesize
+  - hddvd
+  - IOERR
+  - makemkv
+  - makemkvcon
+  - minwindef
+  - OSERR
+  - OSFILE
+  - PRGC
+  - PRGT
+  - PRGV
+  - ripit
+  - SINFO
+  - speedate
+  - TCOUNT
+  - TINFO
+  - VOBSUB
+ignoreWords:
+  - 8SSDX0F17036L1CB5800MGJ
+  - DH16AFSH
+  - PLDS
+import: []

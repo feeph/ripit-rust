@@ -1,0 +1,25 @@
+---
+#
+# Dependabot configuration
+#
+# documentation:
+# - https://docs.github.com/en/code-security/concepts/supply-chain-security/about-the-dependabot-yml-file
+# - https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories
+#
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: rust-toolchain
+    directories:
+      - makemkvcon/
+      - ripit-cli/
+    schedule:
+      interval: weekly
