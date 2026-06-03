@@ -105,8 +105,8 @@ repos:
   # (We rely on the 'pre-push' stage to prevent pushing of unsigned commits.)
   - repo: local
     hooks:
-      - id: commit-signed
-        name: Verify commit is signed
+      - name: verify commit is signed
+        id: commit-signed
         stages:
             - post-commit
         always_run: true
@@ -118,8 +118,8 @@ repos:
   # -----------------------------------------------------------------------
   - repo: local
     hooks:
-      - id: signed-commits
-        name: Verify signature
+      - name: verify all commits are signed
+        id: signed-commits
         language: script
         entry: scripts/verify_commits-are-signed
         args: [ "$PRE_COMMIT_FROM_REF", "$PRE_COMMIT_TO_REF" ]
