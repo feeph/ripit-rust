@@ -50,13 +50,24 @@ repos:
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
-      - id: fmt
-        name: cargo fmt
-        args: [ "--verbose", "--" ]
-      - id: cargo-check
-        name: cargo check
-      - id: clippy
-        name: cargo clippy
+      - name: (makemkv) cargo fmt
+        id: fmt
+        args: [ "--verbose", "--manifest-path=makemkvcon/Cargo.toml", "--" ]
+      - name: (makemkv) cargo check
+        id: cargo-check
+        args: [ "--verbose", "--manifest-path=makemkvcon/Cargo.toml", "--" ]
+      - name: (makemkv) cargo clippy
+        id: clippy
+        args: [ "--verbose", "--manifest-path=makemkvcon/Cargo.toml", "--" ]
+      - name: (ripit-cli) cargo fmt
+        id: fmt
+        args: [ "--verbose", "--manifest-path=ripit-cli/Cargo.toml", "--" ]
+      - name: (ripit-cli) cargo check
+        id: cargo-check
+        args: [ "--verbose", "--manifest-path=ripit-cli/Cargo.toml", "--" ]
+      - name: (ripit-cli) cargo clippy
+        id: clippy
+        args: [ "--verbose", "--manifest-path=ripit-cli/Cargo.toml", "--" ]
   # https://gitleaks.io/
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.27.2  # Specify the desired version of Gitleaks
