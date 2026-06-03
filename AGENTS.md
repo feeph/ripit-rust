@@ -25,7 +25,7 @@ Agent MUST follow these rules:
            changes
          - propose a process that would avoid the same issue from being
            introduced again, e.g.:
-           - use a more suitable pattern
-           - refactor the code
-           - add a pre-commit check
-           - add a  GitHub Action
+           - propose a more suitable pattern
+           - propose a refactoring
+           - propose a pre-commit check
+           - propose a GitHub Action
