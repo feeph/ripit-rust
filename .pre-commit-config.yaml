@@ -83,7 +83,7 @@ repos:
         args: [ "--verbose", "--manifest-path=ripit-cli/Cargo.toml", "--" ]
   # https://gitleaks.io/
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.30.0  # Specify the desired version of Gitleaks
+    rev: v8.30.0
     hooks:
       - id: gitleaks
   # -----------------------------------------------------------------------
