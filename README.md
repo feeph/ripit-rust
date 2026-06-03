@@ -40,3 +40,21 @@ a patch, a minor or a major release.
 
 _Related:_ Refrain from using major versions for marketing purposes.
 Assign a codename to highlight a specific major version.
+
+## Maturity
+
+### Code
+
+| component | maturity level                      |
+| --------- | ----------------------------------- |
+| makemkv   | exploring, may change significantly |
+| ripit-cli | exploring, may change significantly |
+
+### Tooling
+
+| component        | maturity level                 |
+| ---------------- | ------------------------------ |
+| dependabot       | untested                       |
+| pre-commit hooks | working as desired, may change |
+| release-please   | untested                       |
+| (publishing)     | not implemented                |
