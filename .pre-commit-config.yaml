@@ -30,7 +30,7 @@ repos:
   # stage: pre-commit and pre-push
   # -----------------------------------------------------------------------
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-merge-conflict
         args: [--assume-in-merge]
@@ -43,7 +43,7 @@ repos:
   # markdownlint-cli2 can be unhappy about the OS's provided node version
   # may need to use markdownlint-cli2-docker instead of markdownlint-cli2
   - repo: https://github.com/DavidAnson/markdownlint-cli2
-    rev: v0.18.1
+    rev: v0.22.1
     hooks:
     - id: markdownlint-cli2
   # https://github.com/doublify/pre-commit-rust
@@ -70,14 +70,14 @@ repos:
         args: [ "--verbose", "--manifest-path=ripit-cli/Cargo.toml", "--" ]
   # https://gitleaks.io/
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.27.2  # Specify the desired version of Gitleaks
+    rev: v8.30.0  # Specify the desired version of Gitleaks
     hooks:
       - id: gitleaks
   # -----------------------------------------------------------------------
   # stage: commit-msg
   # -----------------------------------------------------------------------
   - repo: https://github.com/commitizen-tools/commitizen
-    rev: v4.8.3
+    rev: v4.16.3
     hooks:
       - id: commitizen
   # -----------------------------------------------------------------------
@@ -113,7 +113,7 @@ repos:
         stages:
             - pre-push
   - repo: https://github.com/commitizen-tools/commitizen
-    rev: v4.8.3
+    rev: v4.16.3
     hooks:
       - id: commitizen-branch
         stages:
