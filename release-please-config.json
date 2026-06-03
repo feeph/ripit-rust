@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "separate-pull-requests": true,
+  "include-component-in-tag": true,
+  "plugins": [
+    "cargo-workspace"
+  ],
+  "packages": {
+    "makemkvcon": {
+      "release-type": "rust",
+      "tag-name": "v${version}",
+      "changelog-path": "makemkvcon/CHANGELOG.md"
+    },
+    "ripit-cli": {
+      "release-type": "rust",
+      "tag-name": "v${version}",
+      "changelog-path": "ripit-cli/CHANGELOG.md"
+    }
+  }
+}
