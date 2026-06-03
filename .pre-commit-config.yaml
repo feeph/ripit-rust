@@ -23,6 +23,19 @@ default_stages:
 # https://pre-commit.com/#overriding-language-version
 default_language_version:
     # required for markdownlint-cli2
+    # fixes the following error:
+    # ---------------------------------------------------------------------
+    # An unexpected error has occurred: CalledProcessError: <...>
+    # return code: 1
+    # stdout: (none)
+    # stderr:
+    #     npm error code EBADENGINE
+    #     npm error engine Unsupported engine
+    #     npm error engine Not compatible with your version of node/npm: @eslint/js@10.0.1
+    #     npm error notsup Not compatible with your version of node/npm: @eslint/js@10.0.1
+    #     npm error notsup Required: {"node":"^20.19.0 || ^22.13.0 || >=24"}
+    #     npm error notsup Actual:   {"npm":"10.7.0","node":"v20.15.1"}
+    # ---------------------------------------------------------------------
     node: lts
 
 repos:
