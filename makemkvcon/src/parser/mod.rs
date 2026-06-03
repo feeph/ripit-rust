@@ -388,6 +388,7 @@ pub fn process_output<R: std::io::BufRead>(
 // validate the return type to ensure the match condition is working as
 // expected (ignore the encapsulated value, it's already unit-tested)
 mod tests {
+
     // cargo complains that 'use super::*' is unused but it's needed
     #[allow(unused_imports)]
     use super::*;
