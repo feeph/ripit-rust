@@ -3,7 +3,7 @@
 */
 
 #[allow(unused_imports)]
-use log::{error, warn, info, debug};
+use log::{debug, error, info, warn};
 
 use serde::Serialize;
 use serde_yaml::{Mapping, Value};
@@ -12,7 +12,10 @@ use serde_yaml::{Mapping, Value};
 fn sort_yaml_value(value: &mut Value) {
     match value {
         Value::Mapping(mapping) => {
-            let mut entries: Vec<_> = mapping.iter_mut().map(|(k, v)| (k.clone(), v.clone())).collect();
+            let mut entries: Vec<_> = mapping
+                .iter_mut()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
             entries.sort_by(|a, b| {
                 let a_num = match &a.0 {
                     Value::Number(n) => n.as_f64(),
@@ -25,7 +28,9 @@ fn sort_yaml_value(value: &mut Value) {
                     _ => None,
                 };
                 match (a_num, b_num) {
-                    (Some(a_n), Some(b_n)) => a_n.partial_cmp(&b_n).unwrap_or(std::cmp::Ordering::Equal),
+                    (Some(a_n), Some(b_n)) => {
+                        a_n.partial_cmp(&b_n).unwrap_or(std::cmp::Ordering::Equal)
+                    }
                     (Some(_), None) => std::cmp::Ordering::Less,
                     (None, Some(_)) => std::cmp::Ordering::Greater,
                     (None, None) => {

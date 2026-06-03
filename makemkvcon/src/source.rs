@@ -6,7 +6,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 #[allow(unused_imports)]
-use log::{error, warn, info, debug};
+use log::{debug, error, info, warn};
 
 use regex::Regex;
 
@@ -42,7 +42,9 @@ pub fn parse_source(source: &str) -> Option<Source> {
             // source is a file (assume iso)
             Some(Source::IsoFile(source.into()))
         } else {
-            error!("Usage error: Source must be a disc id, drive letter, device name, iso file, or directory!");
+            error!(
+                "Usage error: Source must be a disc id, drive letter, device name, iso file, or directory!"
+            );
             None
         }
     }
@@ -51,16 +53,11 @@ pub fn parse_source(source: &str) -> Option<Source> {
 impl fmt::Display for Source {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Source::DriveId(id)
-                => write!(f, "disc:{}", id),
-            Source::DriveLetter(letter)
-                => write!(f, "dev:{}", letter),
-            Source::DeviceName(path)
-                => write!(f, "dev:{}", path.to_string_lossy()),
-            Source::IsoFile(path)
-                => write!(f, "iso:{}", path.to_string_lossy()),
-            Source::Directory(path)
-                => write!(f, "file:{}", path.to_string_lossy()),
+            Source::DriveId(id) => write!(f, "disc:{}", id),
+            Source::DriveLetter(letter) => write!(f, "dev:{}", letter),
+            Source::DeviceName(path) => write!(f, "dev:{}", path.to_string_lossy()),
+            Source::IsoFile(path) => write!(f, "iso:{}", path.to_string_lossy()),
+            Source::Directory(path) => write!(f, "file:{}", path.to_string_lossy()),
         }
     }
 }

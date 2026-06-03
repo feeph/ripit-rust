@@ -11,7 +11,7 @@
 */
 
 #[allow(unused_imports)]
-use log::{error, warn, info, debug};
+use log::{debug, error, info, warn};
 
 use regex::Regex;
 
@@ -35,8 +35,8 @@ pub struct VolumeInfo {
 // ------------------------------------------------------------------------
 #[cfg(target_os = "windows")]
 pub fn get_volume_info(path: &str) -> Option<VolumeInfo> {
-    use winapi::um::fileapi::GetVolumeInformationW;
     use winapi::shared::minwindef::BOOL;
+    use winapi::um::fileapi::GetVolumeInformationW;
 
     let mut volume_name = vec![0u16; 256];
     let mut file_system_name = vec![0u16; 256];
@@ -61,26 +61,28 @@ pub fn get_volume_info(path: &str) -> Option<VolumeInfo> {
 
     if result != 0 {
         let volume_name_str = String::from_utf16_lossy(
-            &volume_name[..volume_name.iter().position(|&c| c == 0).unwrap_or(volume_name.len())]
+            &volume_name[..volume_name
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(volume_name.len())],
         );
         let file_system_name_str = String::from_utf16_lossy(
-            &file_system_name[..file_system_name.iter().position(|&c| c == 0).unwrap_or(file_system_name.len())]
+            &file_system_name[..file_system_name
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(file_system_name.len())],
         );
-        Some(
-            VolumeInfo {
-                volume_name: volume_name_str,
-                volume_serial: format!("{:X}", volume_serial),
-                max_component_length,
-                filesystem_flags: flags,
-                filesystem_name: file_system_name_str
-            }
-
-        )
+        Some(VolumeInfo {
+            volume_name: volume_name_str,
+            volume_serial: format!("{:X}", volume_serial),
+            max_component_length,
+            filesystem_flags: flags,
+            filesystem_name: file_system_name_str,
+        })
     } else {
         // failed to get volume information
         None
     }
-
 }
 
 #[allow(dead_code)]
@@ -139,15 +141,13 @@ pub fn get_blkid(path: &str) -> Option<BlockId> {
         }
     }
 
-    Some(
-        BlockId {
-            dev_name: dev_name?,
-            uuid: uuid?,
-            label: label?,
-            block_size: block_size?,
-            fs_type: fs_type?,
-        }
-    )
+    Some(BlockId {
+        dev_name: dev_name?,
+        uuid: uuid?,
+        label: label?,
+        block_size: block_size?,
+        fs_type: fs_type?,
+    })
 }
 
 pub fn get_volume_id(path: &str) -> Option<String> {
@@ -163,7 +163,10 @@ pub fn get_volume_id(path: &str) -> Option<String> {
     #[cfg(target_os = "windows")]
     {
         if let Some(volume_info) = get_volume_info(path) {
-            Some(format!("{}_{}", volume_info.volume_name, volume_info.volume_serial))
+            Some(format!(
+                "{}_{}",
+                volume_info.volume_name, volume_info.volume_serial
+            ))
         } else {
             None
         }
@@ -182,7 +185,7 @@ pub fn get_volume_id(path: &str) -> Option<String> {
 }
 
 #[cfg(target_os = "linux")]
-fn is_device_name(source: &str ) -> bool {
+fn is_device_name(source: &str) -> bool {
     let rx_device: Regex = Regex::new(r"^/dev/").unwrap();
     rx_device.is_match(source)
 }
@@ -198,18 +201,17 @@ fn eject_medium_linux(source: &std::path::Path) {
             .stderr(std::process::Stdio::null())
             .status();
 
-        match result
-        {
+        match result {
             Ok(status) => {
                 if status.success() {
                     info!("Ejected medium from '{}' using eject.", &source_str);
                 } else {
                     warn!("Linux eject command returned status {:?}.", status.code());
                 }
-            },
+            }
             Err(error) => {
                 warn!("Failed to execute eject command: {}", error);
-            },
+            }
         }
     } else {
         warn!("Unable to eject, source '{}' is not a device!", &source_str);
@@ -217,7 +219,7 @@ fn eject_medium_linux(source: &std::path::Path) {
 }
 
 #[cfg(target_os = "windows")]
-fn is_drive_letter(source: &str ) -> bool {
+fn is_drive_letter(source: &str) -> bool {
     // rules for DOS/Windows:
     // - drive letter A: and B: are reserved for floppy drives
     // - drive letter C: is assigned to the first hard disk drive partition
@@ -237,25 +239,31 @@ fn eject_medium_windows(source: &std::path::Path) {
             source_str
         );
         let result = std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-Command", &ps_command])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+            .args(["-NoProfile", "-Command", &ps_command])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
 
-        match result{
+        match result {
             Ok(status) => {
                 if status.success() {
                     info!("Ejected medium from drive '{}'.", &source_str);
                 } else {
-                    warn!("PowerShell eject command returned status {:?}.", status.code());
+                    warn!(
+                        "PowerShell eject command returned status {:?}.",
+                        status.code()
+                    );
                 }
             }
             Err(error) => {
                 warn!("Failed to execute PowerShell eject command: {}", error);
-            },
+            }
         }
     } else {
-        warn!("Unable to eject, source '{}' is not a drive letter!", &source_str);
+        warn!(
+            "Unable to eject, source '{}' is not a drive letter!",
+            &source_str
+        );
     };
 }
 

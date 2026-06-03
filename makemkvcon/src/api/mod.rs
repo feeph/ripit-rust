@@ -11,26 +11,26 @@
     `TINFO:0,11,0,"397295616"` doesn't mean anything until you know that
     the number 11 is an internal value for 'disk size in bytes'.
 
-    The format of these records is documented on 
+    The format of these records is documented on
     <https://www.makemkv.com/developers/usage.txt> which is a good start.
     (but can't be trusted since at least TCOUNT, TINFO and SINFO are wrong)
 */
 
 mod cinfo;
 mod drive;
-mod msg;
 mod info;
+mod msg;
 mod sinfo;
 mod tcount;
 mod tinfo;
 
-pub use cinfo::{parse_content_info_data};
-pub use drive::{DriveRecord, ContentType, parse_drive_record_data};
+pub use cinfo::parse_content_info_data;
+pub use drive::{ContentType, DriveRecord, parse_drive_record_data};
 pub use info::InfoRecord;
 pub use msg::{MessageRecord, parse_msg_data};
 pub use sinfo::parse_stream_info_data;
 pub use tcount::parse_title_count_data;
-pub use tinfo::{parse_title_info_data};
+pub use tinfo::parse_title_info_data;
 
 // documented usage.txt but not implemented
 // ----------------------------------------

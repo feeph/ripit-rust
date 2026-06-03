@@ -5,15 +5,8 @@
 use std::collections::HashMap;
 
 use crate::api::{
-    DriveRecord,
-    InfoRecord,
-    MessageRecord,
-    parse_content_info_data,
-    parse_drive_record_data,
-    parse_msg_data,
-    parse_stream_info_data,
-    parse_title_count_data,
-    parse_title_info_data,
+    DriveRecord, InfoRecord, MessageRecord, parse_content_info_data, parse_drive_record_data,
+    parse_msg_data, parse_stream_info_data, parse_title_count_data, parse_title_info_data,
 };
 
 use async_stream::stream;
@@ -22,7 +15,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 #[allow(unused_imports)]
-use log::{error, warn, info, debug};
+use log::{debug, error, info, warn};
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, PartialEq)]
@@ -123,11 +116,11 @@ pub fn parse_canned_output(output: &Vec<&[u8]>) -> (Vec<DiscContent>, u32) {
                     issues += 1;
                 }
                 log::info!("[makemkvcon] {}", m.message)
-            },
+            }
             ParsedOutputLine::TCOUNT(t) => {
                 parse_started = true;
                 records.push(DiscContent::TCOUNT(t))
-            },
+            }
             // everything else gets passed through
             ParsedOutputLine::DRV(x) => records.push(DiscContent::DRV(x)),
             ParsedOutputLine::CINFO(x) => records.push(DiscContent::CINFO(x)),
@@ -136,7 +129,10 @@ pub fn parse_canned_output(output: &Vec<&[u8]>) -> (Vec<DiscContent>, u32) {
         }
     }
     if issues > 0 {
-        log::warn!("Detected {} potential issues during parsing! Please validate.", issues)
+        log::warn!(
+            "Detected {} potential issues during parsing! Please validate.",
+            issues
+        )
     }
 
     (records, issues)
@@ -152,7 +148,7 @@ pub struct InfoRecordOut {
 
 impl InfoRecordOut {
     pub fn from(code: &str, value: &str) -> Self {
-        InfoRecordOut{
+        InfoRecordOut {
             code: code.to_string(),
             value: value.to_string(),
         }
@@ -169,7 +165,13 @@ pub fn convert_info_record(info: InfoRecord) -> (String, InfoRecordOut) {
         None => format!("Unknown ({})", info.code_num),
     };
 
-    (attr_str, InfoRecordOut {code: code_str, value: info.value})
+    (
+        attr_str,
+        InfoRecordOut {
+            code: code_str,
+            value: info.value,
+        },
+    )
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -250,7 +252,11 @@ pub enum SeverityLevel {
     Warning,
 }
 
-pub fn process_output<R: std::io::BufRead>(reader: R, min_length: usize, severity_map: &HashMap<u32, SeverityLevel>) -> ParsedOutput {
+pub fn process_output<R: std::io::BufRead>(
+    reader: R,
+    min_length: usize,
+    severity_map: &HashMap<u32, SeverityLevel>,
+) -> ParsedOutput {
     // the output returned by makemkvcon is context-sensitive and follows
     // this structure:
     // --------------------------------------------------------------------
@@ -263,11 +269,11 @@ pub fn process_output<R: std::io::BufRead>(reader: R, min_length: usize, severit
     // SINFO - streams for title #1
     // --------------------------------------------------------------------
 
-    let mut parsed_output = ParsedOutput{
+    let mut parsed_output = ParsedOutput {
         drives: Vec::new(),
         makemkv: MakeMkvRecord {
             version: "<n/a>".to_string(),
-            config: MakeMkvConfig { min_length }
+            config: MakeMkvConfig { min_length },
         },
         content: ContentRecord {
             info: HashMap::new(),
@@ -287,18 +293,18 @@ pub fn process_output<R: std::io::BufRead>(reader: R, min_length: usize, severit
                         match severity_map.get(&m.code) {
                             Some(SeverityLevel::Debug) => {
                                 debug!("[makemkvcon] {}", m.message);
-                            },
+                            }
                             Some(SeverityLevel::Info) => {
                                 info!("[makemkvcon] {}", m.message);
-                            },
+                            }
                             Some(SeverityLevel::Warning) => {
                                 warn!("[makemkvcon] {}", m.message);
                                 parsed_output.issues += 1;
-                            },
+                            }
                             Some(SeverityLevel::Error) => {
                                 error!("[makemkvcon] {}", m.message);
                                 parsed_output.errors += 1;
-                            },
+                            }
                             None => {
                                 // unexpected msg code
                                 warn!("[makemkvcon] MSG:{} {}", m.code, m.message);
@@ -310,37 +316,37 @@ pub fn process_output<R: std::io::BufRead>(reader: R, min_length: usize, severit
                         if m.code == 1005 {
                             parsed_output.makemkv.version = m.params[0].clone();
                         }
-                    },
+                    }
                     ParsedOutputLine::DRV(d) => {
                         // skip empty slots "DriveStatus::NoDrive"
                         if d.drive_status_num != 256 {
                             parsed_output.drives.push(d);
                         };
-                    },
+                    }
                     ParsedOutputLine::TCOUNT(tc) => {
                         tc_want = tc;
-                    },
+                    }
                     ParsedOutputLine::CINFO(ir) => {
                         let (k, v) = convert_info_record(ir);
                         parsed_output.content.info.insert(k, v);
-                    },
+                    }
                     ParsedOutputLine::TINFO((tid, ir)) => {
                         // insert current title record into content record
                         let (attr, iro) = convert_info_record(ir);
                         match parsed_output.content.titles.get_mut(&tid) {
                             None => {
                                 debug!("Parsing title {}.", tid);
-                                let tr = TitleRecord{
+                                let tr = TitleRecord {
                                     attributes: HashMap::from([(attr, iro)]),
                                     streams: HashMap::new(),
                                 };
                                 parsed_output.content.titles.insert(tid, tr);
-                            },
+                            }
                             Some(x) => {
                                 x.attributes.insert(attr, iro);
-                            },
-                        }                        
-                    },
+                            }
+                        }
+                    }
                     ParsedOutputLine::SINFO((tid, sid, ir)) => {
                         // insert current stream record into title record
                         let (attr, iro) = convert_info_record(ir);
@@ -351,25 +357,28 @@ pub fn process_output<R: std::io::BufRead>(reader: R, min_length: usize, severit
                         match tr.streams.get_mut(&sid) {
                             None => {
                                 debug!("Parsing title {}, stream {}.", tid, sid);
-                                let sr = StreamRecord{
+                                let sr = StreamRecord {
                                     attributes: HashMap::from([(attr, iro)]),
                                 };
                                 tr.streams.insert(sid, sr);
-                            },
+                            }
                             Some(x) => {
                                 x.attributes.insert(attr, iro);
-                            },
+                            }
                         }
-                    },
+                    }
                 }
-            },
+            }
             Err(e) => error!("Error reading line: {}", e),
         }
     }
 
     let tc_have = parsed_output.content.titles.len();
     if tc_have != tc_want {
-        error!("TCOUNT and actual title count differ! (TCOUNT: {}, titles: {})", tc_want, tc_have);
+        error!(
+            "TCOUNT and actual title count differ! (TCOUNT: {}, titles: {})",
+            tc_want, tc_have
+        );
         parsed_output.errors += 1;
     }
 
@@ -404,7 +413,10 @@ mod tests {
         let data = b"TCOUNT:12";
         // ----------------------------------------------------------------
         // ----------------------------------------------------------------
-        assert!(matches!(parse_output_line(data), ParsedOutputLine::TCOUNT(_)));
+        assert!(matches!(
+            parse_output_line(data),
+            ParsedOutputLine::TCOUNT(_)
+        ));
     }
 
     #[test]
@@ -412,7 +424,10 @@ mod tests {
         let data = b"TINFO:2,9,0,\"0:23:39\"";
         // ----------------------------------------------------------------
         // ----------------------------------------------------------------
-        assert!(matches!(parse_output_line(data), ParsedOutputLine::TINFO(_)));
+        assert!(matches!(
+            parse_output_line(data),
+            ParsedOutputLine::TINFO(_)
+        ));
     }
 
     // CINFO:1,6206,"DVD disc"
@@ -421,7 +436,10 @@ mod tests {
         let data = b"CINFO:1,6206,\"DVD disc\"";
         // ----------------------------------------------------------------
         // ----------------------------------------------------------------
-        assert!(matches!(parse_output_line(data), ParsedOutputLine::CINFO(_)));
+        assert!(matches!(
+            parse_output_line(data),
+            ParsedOutputLine::CINFO(_)
+        ));
     }
 
     #[test]
@@ -429,7 +447,10 @@ mod tests {
         let data = b"SINFO:2,0,1,6201,\"Video\"";
         // ----------------------------------------------------------------
         // ----------------------------------------------------------------
-        assert!(matches!(parse_output_line(data), ParsedOutputLine::SINFO(_)));
+        assert!(matches!(
+            parse_output_line(data),
+            ParsedOutputLine::SINFO(_)
+        ));
     }
 
     // cargo complains that these imports are unused but they are needed
@@ -449,25 +470,24 @@ mod tests {
         // ----------------------------------------------------------------
         let computed = parse_canned_output(&data).0;
         let expected = vec![
-            DiscContent::DRV(
-                DriveRecord {
-                    index: 0,
-                    drive_status_num: 2,
-                    drive_status: Some(DriveStatus::DiscInserted),
-                    is_enabled: 999,
-                    content_type_num: 1,
-                    content_type: ContentType {
-                        has_dvd_files: true,
-                        has_hddvd_files: false,
-                        has_bluray_files: false,
-                        has_aacs_files: false,
-                        has_bdsvm_files: false
-                    },
-                    drive_name: "DVD+R-DL PLDS DVD-RW DH16AFSH DL31 8SSDX0F17036L1CB5800MGJ".to_string(),
-                    disc_name: "Disc 1".to_string(),
-                    device_name: "/dev/sr0".to_string(),
-                }
-            ),
+            DiscContent::DRV(DriveRecord {
+                index: 0,
+                drive_status_num: 2,
+                drive_status: Some(DriveStatus::DiscInserted),
+                is_enabled: 999,
+                content_type_num: 1,
+                content_type: ContentType {
+                    has_dvd_files: true,
+                    has_hddvd_files: false,
+                    has_bluray_files: false,
+                    has_aacs_files: false,
+                    has_bdsvm_files: false,
+                },
+                drive_name: "DVD+R-DL PLDS DVD-RW DH16AFSH DL31 8SSDX0F17036L1CB5800MGJ"
+                    .to_string(),
+                disc_name: "Disc 1".to_string(),
+                device_name: "/dev/sr0".to_string(),
+            }),
             DiscContent::TCOUNT(13),
         ];
         // ----------------------------------------------------------------
@@ -488,5 +508,4 @@ mod tests {
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
-
 }

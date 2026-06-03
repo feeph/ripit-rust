@@ -45,18 +45,10 @@ fn main() {
 
     let cli = Cli::parse();
     let exit_code = match cli.cmd {
-        Cmd::Drives(args) => {
-            cmd_drives::run(args, &makemkvcon_bin)
-        },
-        Cmd::Unshackle(args) => {
-            cmd_unshackle::run(args, &makemkvcon_bin)
-        },
-        Cmd::Scan(args) => {
-            cmd_scan::run(args, &makemkvcon_bin)
-        },
-        Cmd::Extract(args) => {
-            cmd_extract::run(args, &makemkvcon_bin)
-        },
+        Cmd::Drives(args) => cmd_drives::run(args, &makemkvcon_bin),
+        Cmd::Unshackle(args) => cmd_unshackle::run(args, &makemkvcon_bin),
+        Cmd::Scan(args) => cmd_scan::run(args, &makemkvcon_bin),
+        Cmd::Extract(args) => cmd_extract::run(args, &makemkvcon_bin),
     };
 
     std::process::exit(exit_code);

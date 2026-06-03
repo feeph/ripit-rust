@@ -83,9 +83,7 @@ mod tests {
             count: 1,
             message: "MakeMKV v1.17.9 linux(x64-release) started".to_string(),
             format: "%1 started".to_string(),
-            params: Vec::from([
-                "MakeMKV v1.17.9 linux(x64-release)".to_string(),
-            ]),
+            params: Vec::from(["MakeMKV v1.17.9 linux(x64-release)".to_string()]),
         };
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
@@ -103,14 +101,9 @@ mod tests {
             count: 3,
             message: "Title #1 was added (1 cell(s), 0:23:39)".to_string(),
             format: "Title #%1 was added (%2 cell(s), %3)".to_string(),
-            params: Vec::from([
-                "1".to_string(),
-                "1".to_string(),
-                "0:23:39".to_string(),
-            ]),
+            params: Vec::from(["1".to_string(), "1".to_string(), "0:23:39".to_string()]),
         };
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
-
 }

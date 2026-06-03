@@ -9,7 +9,7 @@ use std::{fs, path::PathBuf};
 use clap::{Parser, ValueHint};
 
 #[allow(unused_imports)]
-use log::{error, warn, info, debug};
+use log::{debug, error, info, warn};
 
 use makemkvcon::DriveRecord;
 
@@ -44,7 +44,9 @@ fn find_drive_record(makemkvcon_bin: &PathBuf, source: &str) -> Option<DriveReco
     // find the drive matching the provided device name
     // - provides mapping from device name to disc id (required for backup)
     // - provides disc content type
-    drive_records.into_iter().find(|dr| dr.device_name == source)
+    drive_records
+        .into_iter()
+        .find(|dr| dr.device_name == source)
 }
 
 pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
@@ -53,7 +55,10 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
     if args.verbose {
         info!("[verbose] unshackle {} -> {}", source_str, target_str);
     }
-    info!("Running unshackle with source='{}' target='{}'", source_str, target_str);
+    info!(
+        "Running unshackle with source='{}' target='{}'",
+        source_str, target_str
+    );
 
     // let mut target = args.target.clone();
 
@@ -78,7 +83,10 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
     let result = os_utils::get_volume_id(&source_str);
     match result {
         Some(x) => {
-            debug!("Drive '{}' contains a medium with volume ID '{}'.", source_str, x);
+            debug!(
+                "Drive '{}' contains a medium with volume ID '{}'.",
+                source_str, x
+            );
             // append volume ID to target in order to create a unique
             // filesystem location for each disc (this is a precaution
             // since the volume name may be something stupid like
@@ -88,7 +96,10 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
             target_yaml.push(&x);
         }
         None => {
-            error!("Unable to proceed: '{}' is not an optical drive!", source_str);
+            error!(
+                "Unable to proceed: '{}' is not an optical drive!",
+                source_str
+            );
             return exitcode::OSFILE;
         }
     }
@@ -103,13 +114,16 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
     // - provides disc content type
     let drive = match find_drive_record(makemkvcon_bin, &source_str) {
         Some(dr) => {
-            debug!("Found optical drive: {} -> {}", dr.device_name, dr.disc_name);
+            debug!(
+                "Found optical drive: {} -> {}",
+                dr.device_name, dr.disc_name
+            );
             dr
-        },
+        }
         None => {
             error!("Unable to find optical drive '{}'!", source_str);
             return exitcode::OSFILE;
-        },
+        }
     };
 
     // ------------------------------------------------------------
@@ -123,7 +137,12 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
         target_dump.add_extension("iso");
     }
 
-    let result = makemkvcon::backup(makemkvcon_bin, disc_id, target_dump.clone(), args.allow_overwrite);
+    let result = makemkvcon::backup(
+        makemkvcon_bin,
+        disc_id,
+        target_dump.clone(),
+        args.allow_overwrite,
+    );
 
     // --------------------------------------------------------------------
     // step 4 - scan extracted medium and save as YAML file
@@ -133,21 +152,24 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
     let min_length = 0;
     target_yaml.add_extension("yaml");
     info!("target_yaml: {}", target_yaml.to_string_lossy());
-    let scan_result = match makemkvcon::info(makemkvcon_bin, &target_dump.to_string_lossy(), min_length) {
-        Some(x) => {
-            x
-        },
-        None => {
-            error!("Unable to scan '{}'!", source_str);
-            return exitcode::OSFILE;
-        },
-    };
+    let scan_result =
+        match makemkvcon::info(makemkvcon_bin, &target_dump.to_string_lossy(), min_length) {
+            Some(x) => x,
+            None => {
+                error!("Unable to scan '{}'!", source_str);
+                return exitcode::OSFILE;
+            }
+        };
 
     let yaml = generate_yaml(scan_result.parsed, true);
     match fs::write(&target_yaml, yaml) {
         Ok(_) => info!("Wrote scan output to '{}'.", target_yaml.display()),
         Err(err) => {
-            error!("Failed to write output file '{}': {}", target_yaml.display(), err);
+            error!(
+                "Failed to write output file '{}': {}",
+                target_yaml.display(),
+                err
+            );
             return exitcode::OSFILE;
         }
     }

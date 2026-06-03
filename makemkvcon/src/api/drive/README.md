@@ -58,7 +58,7 @@ makemkvcon info --robot dev:/dev/sr0 <directory>
 # create a backup of this medium
 # - must use "disc:", can't use "dev:"
 # - in case of a multi-drive setup this may read from the wrong drive
-makemkvcon backup --robot disc:0 <directory>  
+makemkvcon backup --robot disc:0 <directory>
 ```
 
 ## Design Decisions

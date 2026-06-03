@@ -1,10 +1,8 @@
-
 use std::path::PathBuf;
 
 // TODO consider using an environment variable to specify the location
 // (allow the user to force a specific location)
 pub fn find_makemkvcon() -> PathBuf {
-
     // Determine the binary name and fallback path based on OS and architecture
     let (binary_name, fallback_path) = if cfg!(target_os = "linux") {
         ("makemkvcon", None)

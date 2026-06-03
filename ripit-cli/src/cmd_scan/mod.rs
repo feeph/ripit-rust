@@ -5,7 +5,7 @@
 use std::{fs, path::PathBuf};
 
 #[allow(unused_imports)]
-use log::{error, warn, info, debug};
+use log::{debug, error, info, warn};
 
 use clap::{Parser, ValueHint};
 
@@ -32,8 +32,8 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
     }
 
     // makemkvcon's default: 120 seconds
-    let min_length = 0;  
-    
+    let min_length = 0;
+
     let scan_result = match makemkvcon::info(makemkvcon_bin, &args.source, min_length) {
         Some(x) => x,
         None => {
@@ -42,7 +42,10 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
     };
 
     if scan_result.errors > 0 {
-        error!("Detected {} errors while scanning '{}'!", scan_result.errors, &args.source);
+        error!(
+            "Detected {} errors while scanning '{}'!",
+            scan_result.errors, &args.source
+        );
         return exitcode::DATAERR;
     }
 
@@ -51,7 +54,11 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
         match fs::write(&output_file, yaml) {
             Ok(_) => info!("Wrote scan output to '{}'.", output_file.display()),
             Err(err) => {
-                error!("Failed to write output file '{}': {}", output_file.display(), err);
+                error!(
+                    "Failed to write output file '{}': {}",
+                    output_file.display(),
+                    err
+                );
                 return exitcode::OSFILE;
             }
         }
@@ -62,7 +69,10 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
     if scan_result.issues == 0 {
         info!("Successfully scanned '{}'.", &args.source);
     } else {
-        warn!("Detected {} potential issues while scanning '{}'! Please validate.", scan_result.issues, &args.source);
+        warn!(
+            "Detected {} potential issues while scanning '{}'! Please validate.",
+            scan_result.issues, &args.source
+        );
     }
     exitcode::OK
 }

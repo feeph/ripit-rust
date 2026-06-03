@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use clap::{Parser, ValueHint};
 
 #[allow(unused_imports)]
-use log::{error, warn, info, debug};
+use log::{debug, error, info, warn};
 
 #[derive(Parser, Debug)]
 pub struct CmdArgs {
@@ -40,13 +40,14 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
     if args.verbose {
         info!("[verbose] extract {} -> {}", &args.source, &target_str);
     }
-    info!("Running extract with source='{}' target='{}'", &args.source, &target_str);
+    info!(
+        "Running extract with source='{}' target='{}'",
+        &args.source, &target_str
+    );
 
     // scan the medium and find all titles
     let scan_result = match makemkvcon::info(makemkvcon_bin, &args.source, min_length) {
-        Some(x) => {
-            x
-        },
+        Some(x) => x,
         None => {
             return exitcode::DATAERR;
         }
@@ -56,7 +57,11 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
     let titles_have = parsed.content.titles.clone();
 
     let titles_want = if !args.title.is_empty() {
-        info!("Selected {} titles for extraction: {:?}", args.title.len(), args.title);
+        info!(
+            "Selected {} titles for extraction: {:?}",
+            args.title.len(),
+            args.title
+        );
         args.title
     } else {
         info!("Selected {} titles for extraction.", titles_have.len());
@@ -80,21 +85,27 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
             Some(tr) => {
                 let info_record = tr.attributes.get("OutputFileName").unwrap();
                 let filename = info_record.value.to_string();
-                debug!("Processing '{}' (idx: {}, {}/{})", &filename, id, t_pos, t_total);
+                debug!(
+                    "Processing '{}' (idx: {}, {}/{})",
+                    &filename, id, t_pos, t_total
+                );
 
                 if makemkvcon::mkv(makemkvcon_bin, &args.source, *id, &args.target, min_length) {
-                    info!("Successfully extracted '{}'. ({}/{})", &filename, t_pos, t_total);
+                    info!(
+                        "Successfully extracted '{}'. ({}/{})",
+                        &filename, t_pos, t_total
+                    );
                 } else {
                     warn!("Failed to extract '{}'! ({}/{})", &filename, t_pos, t_total);
                     exit_code = exitcode::DATAERR
                 }
-            },
+            }
             None => {
                 warn!("Requested title '{}' does not exist.", id);
                 exit_code = exitcode::DATAERR
-            },
+            }
         }
     }
-   
+
     exit_code
 }

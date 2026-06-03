@@ -37,7 +37,7 @@ enum_from_primitive! {
 
 enum_from_primitive! {
     /// item attribute id
-    /// 
+    ///
     /// The values are derived from enum '_AP_ItemAttributeId' in
     /// `makemkv-oss-1.18.3/makemkvgui/inc/lgpl/apdefs.h`.
     #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -296,7 +296,7 @@ pub fn parse_item_attribute_id(value: u32) -> Option<ItemAttributeId> {
 
 enum_from_primitive! {
     /// item attribute id
-    /// 
+    ///
     /// The values are derived from enum '_AP_ItemAttributeId' in
     /// `makemkv-oss-1.18.3/makemkvgui/inc/lgpl/apdefs.h`.
     #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -388,5 +388,4 @@ mod tests {
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
-
 }

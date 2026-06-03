@@ -5,7 +5,9 @@
     - same as StreamInfo without 'title_id' and 'stream_id'
 */
 
-use crate::apdefs_h::{ItemAttributeCode, ItemAttributeId, parse_item_attribute_id, parse_item_attribute_code};
+use crate::apdefs_h::{
+    ItemAttributeCode, ItemAttributeId, parse_item_attribute_code, parse_item_attribute_id,
+};
 
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
@@ -38,8 +40,8 @@ mod tests {
     #[test]
     fn parse_info_all_known() {
         // ----------------------------------------------------------------
-        let computed = InfoRecord::new(1,6206, "DVD disc");
-        let expected = InfoRecord{
+        let computed = InfoRecord::new(1, 6206, "DVD disc");
+        let expected = InfoRecord {
             attr_num: 1,
             attr_val: Some(ItemAttributeId::Type),
             code_num: 6206,
@@ -54,7 +56,7 @@ mod tests {
     fn parse_info_unknown_attribute() {
         // ----------------------------------------------------------------
         let computed = InfoRecord::new(99, 6206, "Disc 1");
-        let expected = InfoRecord{
+        let expected = InfoRecord {
             attr_num: 99,
             attr_val: None,
             code_num: 6206,
@@ -68,8 +70,8 @@ mod tests {
     #[test]
     fn parse_info_unknown_code() {
         // ----------------------------------------------------------------
-        let computed = InfoRecord::new(2,0, "Disc 1");
-        let expected = InfoRecord{
+        let computed = InfoRecord::new(2, 0, "Disc 1");
+        let expected = InfoRecord {
             attr_num: 2,
             attr_val: Some(ItemAttributeId::Name),
             code_num: 0,
@@ -79,5 +81,4 @@ mod tests {
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
-
 }

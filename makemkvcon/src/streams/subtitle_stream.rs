@@ -39,13 +39,13 @@
 // --------------------------------------------------------------------
 // optional
 // --------------------------------------------------------------------
-// LangCode: 
+// LangCode:
 //     code: Unknown (0)
 //     value: eng
 // LangName:
 //     code: Unknown (0)
 //     value: English
-// MetadataLanguageCode: 
+// MetadataLanguageCode:
 //     code: Unknown (0)
 //     value: eng
 // MetadataLanguageName:

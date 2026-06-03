@@ -37,7 +37,7 @@ pub fn parse_content_type_value(value: u8) -> ContentType {
         has_bluray_files,
         has_aacs_files,
         has_bdsvm_files,
-    }    
+    }
 }
 
 #[cfg(test)]
@@ -107,5 +107,4 @@ mod tests {
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
-
 }

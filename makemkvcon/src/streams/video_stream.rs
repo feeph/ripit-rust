@@ -48,7 +48,7 @@
 // --------------------------------------------------------------------
 // optional
 // --------------------------------------------------------------------
-// MetadataLanguageCode: 
+// MetadataLanguageCode:
 //     code: Unknown (0)
 //     value: eng
 // MetadataLanguageName:

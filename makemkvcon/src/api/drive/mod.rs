@@ -5,24 +5,24 @@
 
 mod content_type;
 
-use content_type::{parse_content_type_value};
+use content_type::parse_content_type_value;
 
 use csv;
 use num::FromPrimitive;
 
-pub use crate::apdefs_h::{DriveStatus};
-pub use content_type::{ContentType};
+pub use crate::apdefs_h::DriveStatus;
+pub use content_type::ContentType;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct DriveRecord {
     pub index: u8,
     // 'visible' - set to 1 if drive is present
-    pub drive_status_num: u32,  // numerical representation
+    pub drive_status_num: u32,             // numerical representation
     pub drive_status: Option<DriveStatus>, // parsed value
     // 'enabled' - set to 1 if drive is accessible
     pub is_enabled: u32,
     // 'flags' - media flags, see AP_DskFsFlagXXX in apdefs.h
-    pub content_type_num: u8,  // numerical representation
+    pub content_type_num: u8,      // numerical representation
     pub content_type: ContentType, // parsed value
     pub drive_name: String,
     pub disc_name: String,
@@ -122,7 +122,7 @@ mod tests {
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
-    
+
     // DVD detected (Linux, using device name)
     // DRV:0,2,999,1,"BD-RE ASUS BW-16D1HT 3.10 KL1OBDB4635","Nekomonogatari White","/dev/sr0"
     #[test]
@@ -155,7 +155,8 @@ mod tests {
     // DRV:0,2,999,1,"BD-RE ASUS SBW-06D5H-U E101 AFDL222859WL","COWBOY_BEBOP_V4","E:"
     #[test]
     fn parse_dvd_present_windows() {
-        let data = b"0,2,999,1,\"BD-RE ASUS SBW-06D5H-U E101 AFDL222859WL\",\"COWBOY_BEBOP_V4\",\"E:\"";
+        let data =
+            b"0,2,999,1,\"BD-RE ASUS SBW-06D5H-U E101 AFDL222859WL\",\"COWBOY_BEBOP_V4\",\"E:\"";
         // ----------------------------------------------------------------
         let computed = parse_drive_record_data(data);
         let expected = DriveRecord {
@@ -234,5 +235,4 @@ mod tests {
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
-
 }
