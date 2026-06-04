@@ -27,7 +27,7 @@ use log::{debug, error, info, warn};
 pub use crate::api::DriveRecord;
 use crate::parser::InfoRecordOut;
 
-pub fn drives(makemkvcon_bin: &PathBuf) -> (Vec<api::DriveRecord>, usize) {
+pub fn drives(makemkvcon_bin: &Path) -> (Vec<api::DriveRecord>, usize) {
     // intentionally using an invalid drive specification 'disc:-1' since
     // we're interested only in the 'disc id' to 'drive' mapping and don't
     // want to parse any inserted disc
@@ -85,7 +85,7 @@ fn calculate_write_rate(bytes_written: u64, elapsed: std::time::Duration) -> u64
     bytes_written.checked_div(seconds).unwrap_or_default()
 }
 
-pub fn backup(makemkvcon_bin: &PathBuf, disc_id: u8, target: PathBuf, overwrite: bool) -> bool {
+pub fn backup(makemkvcon_bin: &Path, disc_id: u8, target: &Path, overwrite: bool) -> bool {
     let source_mkv = format!("disc:{}", disc_id);
     let target_mkv = target.to_string_lossy().to_string();
     info!("Extracting '{}' to '{}'.", source_mkv, target_mkv);
@@ -96,10 +96,10 @@ pub fn backup(makemkvcon_bin: &PathBuf, disc_id: u8, target: PathBuf, overwrite:
                 "Removing existing directory '{}'.",
                 target.to_string_lossy()
             );
-            std::fs::remove_dir_all(&target).expect("Failed to remove existing directory");
+            std::fs::remove_dir_all(target).expect("Failed to remove existing directory");
         } else if target.is_file() {
             info!("Removing existing file '{}'.", target.to_string_lossy());
-            std::fs::remove_file(&target).expect("Failed to remove existing file");
+            std::fs::remove_file(target).expect("Failed to remove existing file");
         }
     }
 
@@ -120,10 +120,11 @@ pub fn backup(makemkvcon_bin: &PathBuf, disc_id: u8, target: PathBuf, overwrite:
     // - if everything goes well `makemkvcon backup` itself creates no
     //   output while it's running; we add our own reporting of size and
     //   write rate so the user can see how fast/slow the extraction is
+    let target_cp = PathBuf::from(target);
     let monitor = std::thread::spawn(move || {
         let mut write_start = std::time::Instant::now();
         while !stop_flag_clone.load(std::sync::atomic::Ordering::Relaxed) {
-            if !target.exists() {
+            if !target_cp.exists() {
                 // 'target' does not exist
                 // -> update the start time and go back to sleep
                 write_start = std::time::Instant::now();
@@ -135,7 +136,7 @@ pub fn backup(makemkvcon_bin: &PathBuf, disc_id: u8, target: PathBuf, overwrite:
                 // at least one wait cycle has passed and there should
                 // be some data available now
                 // -> report progress to user
-                let size = calculate_filesystem_size(&target);
+                let size = calculate_filesystem_size(&target_cp);
                 let size_gib = size as f64 / f64::powf(1024.0, 3.0);
                 let write_rate = calculate_write_rate(size, write_start.elapsed());
                 let write_rate_mibs = write_rate as f64 / f64::powf(1024.0, 2.0);
@@ -334,7 +335,7 @@ pub struct ScanResult {
     pub errors: usize,
 }
 
-pub fn info(makemkvcon_bin: &PathBuf, source: &str, min_length: usize) -> Option<ScanResult> {
+pub fn info(makemkvcon_bin: &Path, source: &str, min_length: usize) -> Option<ScanResult> {
     let source_mkv = match source::parse_source(source) {
         Some(x) => x,
         None => {
@@ -512,7 +513,7 @@ pub fn info(makemkvcon_bin: &PathBuf, source: &str, min_length: usize) -> Option
 }
 
 pub fn mkv(
-    makemkvcon_bin: &PathBuf,
+    makemkvcon_bin: &Path,
     source: &str,
     title: usize,
     target: &Path,

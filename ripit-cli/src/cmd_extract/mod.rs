@@ -2,7 +2,7 @@
     ripit-cli extract <SOURCE> <TARGET>
 */
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use clap::{Parser, ValueHint};
 
@@ -32,7 +32,7 @@ pub struct CmdArgs {
     verbose: bool,
 }
 
-pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
+pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
     // use provided value or default to 0
     let min_length = args.min_length.unwrap_or_default();
 

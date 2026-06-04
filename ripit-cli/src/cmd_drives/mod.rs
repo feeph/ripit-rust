@@ -2,7 +2,7 @@
     ripit-cli scan <SOURCE>
 */
 
-use std::{fs, path::PathBuf};
+use std::{fs, path::Path, path::PathBuf};
 
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
@@ -20,7 +20,7 @@ pub struct CmdArgs {
     output_file: Option<PathBuf>,
 }
 
-pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
+pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
     let (result, issues) = makemkvcon::drives(makemkvcon_bin);
     if !result.is_empty() {
         let yaml = serde_yaml::to_string(&result).unwrap();

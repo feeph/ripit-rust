@@ -2,7 +2,7 @@
     ripit-cli scan <SOURCE>
 */
 
-use std::{fs, path::PathBuf};
+use std::{fs, path::Path, path::PathBuf};
 
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
@@ -26,7 +26,7 @@ pub struct CmdArgs {
     output_file: Option<PathBuf>,
 }
 
-pub fn run(args: CmdArgs, makemkvcon_bin: &PathBuf) -> i32 {
+pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
     if args.verbose {
         println!("[verbose] scan {}", args.source);
     }
