@@ -69,43 +69,111 @@ mod tests {
 
     #[test]
     fn test_format_drive_id() {
+        // ----------------------------------------------------------------
         let computed = Source::DriveId(0).to_string();
         let expected = "disc:0".to_string();
+        // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
 
     #[test]
     fn test_format_drive_letter1() {
+        // ----------------------------------------------------------------
         let computed = Source::DriveLetter("E:".to_string()).to_string();
         let expected = "dev:E:".to_string();
+        // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
 
     #[test]
     fn test_format_drive_letter2() {
+        // ----------------------------------------------------------------
         let computed = Source::DriveLetter(r"E:\".to_string()).to_string();
         let expected = r"dev:E:\".to_string();
+        // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
 
     #[test]
     fn test_format_device_name() {
+        // ----------------------------------------------------------------
         let computed = Source::DeviceName(PathBuf::from("/dev/sr0")).to_string();
         let expected = "dev:/dev/sr0".to_string();
+        // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
 
     #[test]
     fn test_format_iso_file() {
+        // ----------------------------------------------------------------
         let computed = Source::IsoFile(PathBuf::from("/home/user/dvd.iso")).to_string();
         let expected = "iso:/home/user/dvd.iso".to_string();
+        // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
 
     #[test]
     fn test_format_directory() {
+        // ----------------------------------------------------------------
         let computed = Source::Directory(PathBuf::from("/home/user/dvd_folder")).to_string();
         let expected = "file:/home/user/dvd_folder".to_string();
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_parse_source_as_disc() {
+        // ----------------------------------------------------------------
+        let computed = parse_source("1").unwrap();
+        let expected = Source::DriveId(1);
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_parse_source_as_drive_letter() {
+        // ----------------------------------------------------------------
+        let computed = parse_source("E:").unwrap();
+        let expected = Source::DriveLetter("E:".to_string());
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_parse_source_as_device_name() {
+        // ----------------------------------------------------------------
+        let computed = parse_source("/dev/sr1").unwrap();
+        let expected = Source::DeviceName(PathBuf::from("/dev/sr1"));
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_parse_source_as_directory() {
+        // ----------------------------------------------------------------
+        let computed = parse_source(".").unwrap();
+        let expected = Source::Directory(PathBuf::from("."));
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_parse_source_as_iso_file() {
+        // ----------------------------------------------------------------
+        // the file must exist, does not verify if the file is an actual
+        // ISO file
+        let computed = parse_source("src/lib.rs").unwrap();
+        let expected = Source::IsoFile(PathBuf::from("src/lib.rs"));
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_parse_source_failure() {
+        // ----------------------------------------------------------------
+        let computed = parse_source("does_not_exist.iso");
+        let expected = None;
+        // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
 }
