@@ -37,7 +37,7 @@ pub fn parse_source(source: &str) -> Option<Source> {
         let source_path = PathBuf::from(&source);
         if source_path.is_dir() {
             // source is a directory
-            Some(Source::IsoFile(source.into()))
+            Some(Source::Directory(source.into()))
         } else if source_path.is_file() {
             // source is a file (assume iso)
             Some(Source::IsoFile(source.into()))
