@@ -87,3 +87,56 @@ pub struct ParsedOutput {
     pub issues: usize,
     pub errors: usize,
 }
+
+mod tests {
+
+    // cargo complains that 'use super::*' is unused but it's needed
+    #[allow(unused_imports)]
+    use super::*;
+
+    #[test]
+    fn test_construct_new_stream_record() {
+        // ----------------------------------------------------------------
+        let computed = StreamRecord::new();
+        let expected = StreamRecord {
+            attributes: HashMap::new(),
+        };
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_construct_default_stream_record() {
+        // ----------------------------------------------------------------
+        let computed = StreamRecord::default();
+        let expected = StreamRecord {
+            attributes: HashMap::new(),
+        };
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_construct_new_title_record() {
+        // ----------------------------------------------------------------
+        let computed = TitleRecord::new();
+        let expected = TitleRecord {
+            attributes: HashMap::new(),
+            streams: HashMap::new(),
+        };
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_construct_default_title_record() {
+        // ----------------------------------------------------------------
+        let computed = TitleRecord::default();
+        let expected = TitleRecord {
+            attributes: HashMap::new(),
+            streams: HashMap::new(),
+        };
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+}
