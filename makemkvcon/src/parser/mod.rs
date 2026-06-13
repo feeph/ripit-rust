@@ -9,11 +9,6 @@ use crate::api::{
     parse_msg_data, parse_stream_info_data, parse_title_count_data, parse_title_info_data,
 };
 
-use async_stream::stream;
-use futures::Stream;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
-
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
 
@@ -44,98 +39,6 @@ fn parse_output_line(line: &[u8]) -> ParsedOutputLine {
         b"SINFO" => ParsedOutputLine::SINFO(parse_stream_info_data(&data[1..])),
         _ => panic!("Found unsupported ID {}!", std::str::from_utf8(id).unwrap()),
     }
-}
-
-#[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, PartialEq)]
-pub enum DiscContent {
-    VERSION(String),
-    CINFO(InfoRecord),
-    DRV(DriveRecord),
-    SINFO((usize, usize, InfoRecord)),
-    TCOUNT(usize),
-    TINFO((usize, InfoRecord)),
-}
-
-// line-based - read the output while makemkv is running
-// Windows: "cmd /c makemkvcon64.exe --robot info dvd.iso"
-pub async fn parse_command_output(command: &str) -> impl Stream<Item = DiscContent> + use<'_> {
-    stream! {
-        let mut child = Command::new("cmd")
-            .arg("/c")
-            .arg(command)
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
-
-        let stdout = child.stdout.take().unwrap();
-        let reader = BufReader::new(stdout);
-        let mut lines = reader.lines();
-
-        let mut parse_started = false;
-        let mut issues = 0;
-        while let Ok(Some(line)) = lines.next_line().await {
-            let parsed = parse_output_line(line.as_bytes());
-            // match conditions sorted in order of occurrence
-            match parsed {
-                // 'v' = 'value'
-                ParsedOutputLine::MSG(v) => {
-                    if parse_started {
-                        issues += 1;
-                    }
-                    log::info!("[makemkvcon] {}", v.message)
-                },
-                ParsedOutputLine::DRV(v) => yield DiscContent::DRV(v),
-                ParsedOutputLine::TCOUNT(v) => {
-                    parse_started = true;
-                    yield DiscContent::TCOUNT(v)
-                },
-                ParsedOutputLine::CINFO(v) => yield DiscContent::CINFO(v),
-                ParsedOutputLine::TINFO(v) => yield DiscContent::TINFO(v),
-                ParsedOutputLine::SINFO(v) => yield DiscContent::SINFO(v),
-            }
-        }
-        if issues > 0 {
-            log::warn!("Detected {} potential issues during parsing! Please validate.", issues)
-        }
-    }
-}
-
-// data-based - output was already generated, we just need to parse it
-pub fn parse_canned_output(output: &Vec<&[u8]>) -> (Vec<DiscContent>, u32) {
-    let mut parse_started = false;
-    let mut issues = 0u32;
-
-    let mut records = Vec::new();
-    for line in output.iter() {
-        let parsed = parse_output_line(line);
-        match parsed {
-            // special handling for MSG and TCOUNT
-            ParsedOutputLine::MSG(m) => {
-                if parse_started {
-                    issues += 1;
-                }
-                log::info!("[makemkvcon] {}", m.message)
-            }
-            ParsedOutputLine::TCOUNT(t) => {
-                parse_started = true;
-                records.push(DiscContent::TCOUNT(t))
-            }
-            // everything else gets passed through
-            ParsedOutputLine::DRV(x) => records.push(DiscContent::DRV(x)),
-            ParsedOutputLine::CINFO(x) => records.push(DiscContent::CINFO(x)),
-            ParsedOutputLine::SINFO(x) => records.push(DiscContent::SINFO(x)),
-            ParsedOutputLine::TINFO(x) => records.push(DiscContent::TINFO(x)),
-        }
-    }
-    if issues > 0 {
-        log::warn!(
-            "Detected {} potential issues during parsing! Please validate.",
-            issues
-        )
-    }
-
-    (records, issues)
 }
 
 // ------------------------------------------------------------------------
@@ -452,61 +355,5 @@ mod tests {
             parse_output_line(data),
             ParsedOutputLine::SINFO(_)
         ));
-    }
-
-    // cargo complains that these imports are unused but they are needed
-    #[allow(unused_imports)]
-    use crate::apdefs_h::DriveStatus;
-
-    #[allow(unused_imports)]
-    use crate::api::ContentType;
-
-    #[test]
-    fn test_parse_canned_output() {
-        let data: Vec<&[u8]> = vec![
-            b"MSG:1005,0,1,\"MakeMKV v1.17.9 linux(x64-release) started\",\"%1 started\",\"MakeMKV v1.17.9 linux(x64-release)\"",
-            b"DRV:0,2,999,1,\"DVD+R-DL PLDS DVD-RW DH16AFSH DL31 8SSDX0F17036L1CB5800MGJ\",\"Disc 1\",\"/dev/sr0\"",
-            b"TCOUNT:13",
-        ];
-        // ----------------------------------------------------------------
-        let computed = parse_canned_output(&data).0;
-        let expected = vec![
-            DiscContent::DRV(DriveRecord {
-                index: 0,
-                drive_status_num: 2,
-                drive_status: Some(DriveStatus::DiscInserted),
-                is_enabled: 999,
-                content_type_num: 1,
-                content_type: ContentType {
-                    has_dvd_files: true,
-                    has_hddvd_files: false,
-                    has_bluray_files: false,
-                    has_aacs_files: false,
-                    has_bdsvm_files: false,
-                },
-                drive_name: "DVD+R-DL PLDS DVD-RW DH16AFSH DL31 8SSDX0F17036L1CB5800MGJ"
-                    .to_string(),
-                disc_name: "Disc 1".to_string(),
-                device_name: "/dev/sr0".to_string(),
-            }),
-            DiscContent::TCOUNT(13),
-        ];
-        // ----------------------------------------------------------------
-        assert_eq!(computed, expected);
-    }
-
-    #[test]
-    fn test_parse_canned_output_with_errors() {
-        // MSG after TCOUNT indicates an issue
-        let data: Vec<&[u8]> = vec![
-            b"MSG:1005,0,1,\"MakeMKV v1.17.9 linux(x64-release) started\",\"%1 started\",\"MakeMKV v1.17.9 linux(x64-release)\"",
-            b"TCOUNT:13",
-            b"MSG:9999,0,0,\"message\",\"message\"",
-        ];
-        // ----------------------------------------------------------------
-        let computed = parse_canned_output(&data).1;
-        let expected = 1;
-        // ----------------------------------------------------------------
-        assert_eq!(computed, expected);
     }
 }
