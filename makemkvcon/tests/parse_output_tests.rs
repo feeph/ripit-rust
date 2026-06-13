@@ -1,12 +1,10 @@
+use std::collections::HashMap;
+
 use makemkvcon::parser::{
     InfoRecordOut, MakeMkvConfig, MakeMkvRecord, StreamRecord, process_output,
 };
 
 mod tests {
-    use std::collections::HashMap;
-
-    // cargo complains that 'use super::*' is unused but it's needed
-    #[allow(unused_imports)]
     use super::*;
 
     #[test]
