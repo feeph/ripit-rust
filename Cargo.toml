@@ -1,0 +1,42 @@
+#
+# root-level Cargo.toml for monorepo
+#
+# documentation:
+# - https://doc.rust-lang.org/cargo/reference/workspaces.html
+
+[workspace]
+members = [
+    "ripit-cli",
+]
+resolver = "3"
+
+[workspace.dependencies]
+async-stream = "0.3"
+clap = "4.6"
+csv = "1.4"
+enum_primitive = "0.1"
+env_logger = "0.11"
+exitcode = "1.1"
+futures = "0.3"
+itertools = "0.14"
+log = "0.4"
+makemkv = { path = "libs/makemkv" }
+num = "0.4"
+range = "1.0"
+regex = "1.12"
+ripit = { path = "libs/ripit" }
+serde = "1.0"
+serde_yaml = "0.9"
+speedate = "0.17"
+strum_macros = "0.28"
+tokio = "1.52"
+which = "8.0"
+winapi = "0.3"
+
+
+[workspace.package]
+authors = [
+    "Feeph Aifeimei"
+]
+license-file = "LICENSE"
+rust-version = "1.91"

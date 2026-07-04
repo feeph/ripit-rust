@@ -65,22 +65,19 @@ repos:
     hooks:
       - name: (makemkv) cargo fmt
         id: fmt
-        args: [ "--verbose", "--manifest-path=makemkvcon/Cargo.toml", "--" ]
-      - name: (makemkv) cargo check
-        id: cargo-check
-        args: [ "--verbose", "--manifest-path=makemkvcon/Cargo.toml", "--" ]
-      - name: (makemkv) cargo clippy
-        id: clippy
-        args: [ "--verbose", "--manifest-path=makemkvcon/Cargo.toml", "--" ]
+        args: [ "--verbose", "--manifest-path=libs/makemkv/Cargo.toml", "--" ]
+      - name: (ripit) cargo fmt
+        id: fmt
+        args: [ "--verbose", "--manifest-path=libs/ripit/Cargo.toml", "--" ]
       - name: (ripit-cli) cargo fmt
         id: fmt
         args: [ "--verbose", "--manifest-path=ripit-cli/Cargo.toml", "--" ]
-      - name: (ripit-cli) cargo check
+      - name: cargo check
         id: cargo-check
-        args: [ "--verbose", "--manifest-path=ripit-cli/Cargo.toml", "--" ]
-      - name: (ripit-cli) cargo clippy
+        args: [ "--verbose", "--workspace" ]
+      - name: cargo clippy
         id: clippy
-        args: [ "--verbose", "--manifest-path=ripit-cli/Cargo.toml", "--" ]
+        args: [ "--verbose", "--workspace" ]
   # https://gitleaks.io/
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.0

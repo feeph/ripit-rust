@@ -34,7 +34,7 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
     // makemkvcon's default: 120 seconds
     let min_length = 0;
 
-    let scan_result = match makemkvcon::info(makemkvcon_bin, &args.source, min_length) {
+    let scan_result = match makemkv::info(makemkvcon_bin, &args.source, min_length) {
         Some(x) => x,
         None => {
             return exitcode::DATAERR;

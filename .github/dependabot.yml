@@ -19,7 +19,8 @@ updates:
       interval: weekly
   - package-ecosystem: rust-toolchain
     directories:
-      - makemkvcon/
+      - libs/makemkv/
+      - libs/ripit/
       - ripit-cli/
     schedule:
       interval: weekly

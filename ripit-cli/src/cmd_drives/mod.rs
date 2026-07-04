@@ -21,7 +21,7 @@ pub struct CmdArgs {
 }
 
 pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
-    let (result, issues) = makemkvcon::drives(makemkvcon_bin);
+    let (result, issues) = makemkv::drives(makemkvcon_bin);
     if !result.is_empty() {
         let yaml = serde_yaml::to_string(&result).unwrap();
         if let Some(output_file) = args.output_file {

@@ -46,7 +46,7 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
     );
 
     // scan the medium and find all titles
-    let scan_result = match makemkvcon::info(makemkvcon_bin, &args.source, min_length) {
+    let scan_result = match makemkv::info(makemkvcon_bin, &args.source, min_length) {
         Some(x) => x,
         None => {
             return exitcode::DATAERR;
@@ -54,7 +54,7 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
     };
 
     let parsed = scan_result.parsed.unwrap();
-    let titles_have = parsed.content.titles.clone();
+    let titles_have = parsed.titles.clone();
 
     let titles_want = if !args.title.is_empty() {
         info!(
@@ -83,14 +83,13 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
     for (t_pos, id) in titles {
         match titles_have.get(id) {
             Some(tr) => {
-                let info_record = tr.attributes.get("OutputFileName").unwrap();
-                let filename = info_record.value.to_string();
+                let filename = tr.info.output_file_name.clone().unwrap();
                 debug!(
                     "Processing '{}' (idx: {}, {}/{})",
                     &filename, id, t_pos, t_total
                 );
 
-                if makemkvcon::mkv(makemkvcon_bin, &args.source, *id, &args.target, min_length) {
+                if makemkv::mkv(makemkvcon_bin, &args.source, *id, &args.target, min_length) {
                     info!(
                         "Successfully extracted '{}'. ({}/{})",
                         &filename, t_pos, t_total

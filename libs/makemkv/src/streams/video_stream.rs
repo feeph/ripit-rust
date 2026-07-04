@@ -71,6 +71,6 @@ pub struct VideoStream {
     pub tree_info: String,
     pub stream_type: String,
     pub video_aspect_ratio: String,
-    pub video_framerate: String,
+    pub video_frame_rate: String,
     pub video_size: String,
 }

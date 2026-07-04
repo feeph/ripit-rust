@@ -16,12 +16,18 @@ if ! $(cargo llvm-cov --version >/dev/null 2>&1) ; then
     exit 1
 fi
 
-for cargo_toml in */Cargo.toml ; do
-    # normal unit testing (without code coverage)
-    # cargo test --manifest-path=$cargo_toml
+# perform unit tests and measure code coverage
+# (requires `cargo install cargo-llvm-cov`)
+cargo llvm-cov --workspace --lcov --output-path=lcov.info
 
-    # perform unit tests and measure code coverage
-    # (requires `cargo install cargo-llvm-cov`)
-    lcov_file=$(echo $cargo_toml|sed 's|/Cargo\.toml$|/lcov.info|')
-    cargo llvm-cov --manifest-path=$cargo_toml --lcov --output-path=$lcov_file
-done
+# -- obsolete? --
+# for cargo_toml in */Cargo.toml ; do
+#     # normal unit testing (without code coverage)
+#     # cargo test --manifest-path=$cargo_toml
+#
+#     # perform unit tests and measure code coverage
+#     # (requires `cargo install cargo-llvm-cov`)
+#     lcov_file=$(echo $cargo_toml|sed 's|/Cargo\.toml$|/lcov.info|')
+#     cargo llvm-cov --manifest-path=$cargo_toml --lcov --output-path=$lcov_file
+# done
+# ---------------

@@ -1,17 +1,21 @@
 [package]
-name = "ripit-cli"
-version = "0.1.0"
+authors = { workspace = true }
 edition = "2024"
+license-file = { workspace = true }
+name = "ripit-cli"
+rust-version = { workspace = true }
+version = "0.1.0"
 
 [dependencies]
-clap = { version = "4.6.1", features = ["derive", "env"] }
-env_logger = "0.11.10"
-exitcode = "1.1.2"
-log = { version = "0.4.29", features = ["serde", "std"] }
-makemkvcon = { version = "0.1.0", path = "../makemkvcon" }
-range = "1.0.0"
-regex = "1.12.3"
-serde = "1.0.228"
-serde_yaml = "0.9.34"
-which = "8.0.2"
-winapi = { version = "0.3", features = ["fileapi", "winbase"] }
+clap = { features = ["derive", "env"], workspace = true }
+env_logger = { workspace = true }
+exitcode = { workspace = true }
+log = { workspace = true }
+makemkv = { workspace = true }
+range = { workspace = true }
+regex = { workspace = true }
+ripit = { workspace = true }
+serde = { features = ["derive", "std"], workspace = true }
+serde_yaml = { workspace = true }
+which = { workspace = true }
+winapi = { features = ["fileapi", "winbase"], workspace = true }

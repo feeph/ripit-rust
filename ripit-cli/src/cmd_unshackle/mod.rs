@@ -11,7 +11,7 @@ use clap::{Parser, ValueHint};
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
 
-use makemkvcon::DriveRecord;
+use makemkv::DriveRecord;
 
 use crate::yaml_utils::generate_yaml;
 
@@ -43,7 +43,7 @@ pub struct CmdArgs {
 }
 
 fn find_drive_record(makemkvcon_bin: &Path, source: &str) -> Option<DriveRecord> {
-    let (drive_records, _) = makemkvcon::drives(makemkvcon_bin);
+    let (drive_records, _) = makemkv::drives(makemkvcon_bin);
 
     // find the drive matching the provided device name
     // - provides mapping from device name to disc id (required for backup)
@@ -141,7 +141,7 @@ fn unshackle_disc(
         target_dump.add_extension("iso");
     }
 
-    let result = makemkvcon::backup(makemkvcon_bin, disc_id, &target_dump, allow_overwrite);
+    let result = makemkv::backup(makemkvcon_bin, disc_id, &target_dump, allow_overwrite);
 
     // --------------------------------------------------------------------
     // step 4 - scan extracted medium and save as YAML file
@@ -153,7 +153,7 @@ fn unshackle_disc(
         target_yaml.add_extension("yaml");
         info!("target_yaml: {}", target_yaml.to_string_lossy());
         let scan_result =
-            match makemkvcon::info(makemkvcon_bin, &target_dump.to_string_lossy(), min_length) {
+            match makemkv::info(makemkvcon_bin, &target_dump.to_string_lossy(), min_length) {
                 Some(x) => x,
                 None => {
                     error!("Unable to scan '{}'!", source_str);

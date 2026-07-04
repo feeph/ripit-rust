@@ -1,1 +1,5 @@
-{}
+{
+    "libs/makemkv": "0.1.0",
+    "libs/ripit": "0.1.0",
+    "ripit-cli": "0.1.0"
+}

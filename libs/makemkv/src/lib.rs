@@ -13,19 +13,18 @@ pub mod api;
 pub mod parser;
 pub mod source;
 
-use itertools::Itertools;
 use std::collections::HashMap;
 use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
 
 pub use source::{Source, parse_source};
+pub use streams::{AudioStream, SubtitleStream, VideoStream};
 
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
 
 pub use crate::api::DriveRecord;
-use crate::parser::InfoRecordOut;
 
 pub fn drives(makemkvcon_bin: &Path) -> (Vec<api::DriveRecord>, usize) {
     // intentionally using an invalid drive specification 'disc:-1' since
@@ -214,95 +213,6 @@ fn parse_as_usize(value: &str) -> Option<usize> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Serialize)]
-pub struct Attributes {
-    pub chapters: usize,
-    pub duration: String,
-    pub filename: String,
-    pub filesize: usize,
-    pub segments: Vec<String>,
-}
-
-fn parse_attributes(attributes: HashMap<String, InfoRecordOut>) -> Option<Attributes> {
-    let mut chapter_count: Option<usize> = None;
-    let mut disk_size_bytes: Option<usize> = None;
-    let mut duration_hms: Option<String> = None;
-    let mut segments_cnt: Option<usize> = None;
-    let mut segments_map: Option<String> = None;
-    let mut filename: Option<String> = None;
-    for (attr_name, attr_record) in attributes {
-        match attr_name.as_str() {
-            // code: Unknown (0), value: '13'
-            "ChapterCount" => {
-                chapter_count = parse_as_usize(&attr_record.value);
-            }
-            // code: Unknown (0), value: B1
-            "Comment" => {}
-            // code: Unknown (0), value: 4.9 GB
-            "DiskSize" => {}
-            // code: Unknown (0), value: '5302022144'
-            "DiskSizeBytes" => {
-                disk_size_bytes = parse_as_usize(&attr_record.value);
-            }
-            // code: Unknown (0), value: 1:47:58
-            "Duration" => {
-                duration_hms = Some(attr_record.value);
-            }
-            // code: Unknown (0), value: '0'
-            "OrderWeight" => {}
-            // code: Unknown (0), value: '01'
-            "OriginalTitleId" => {}
-            // code: Unknown (0), value: B1_t00.mkv
-            "OutputFileName" => {
-                filename = Some(attr_record.value);
-            }
-            // code: AppInterfaceItemInfoTitle, value: <b>Title information</b><br>
-            "PanelTitle" => {}
-            // code: Unknown (0), value: '2'
-            "SegmentsCount" => {
-                segments_cnt = parse_as_usize(&attr_record.value);
-            }
-            // code: Unknown (0), value: 1-10,11-13
-            "SegmentsMap" => {
-                segments_map = Some(attr_record.value);
-            }
-            // code: Unknown (0), value: 13 chapter(s) , 4.9 GB (B1)
-            "TreeInfo" => {}
-            _ => {}
-        }
-    }
-
-    // parse segments_map into a list and validate against segments_cnt
-    let mut segments_normalized = Vec::new();
-    if let Some(map) = segments_map {
-        // split on commas, trim whitespace
-        let parts: Vec<String> = map
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        if let Some(expected) = segments_cnt
-            && parts.len() != expected
-        {
-            panic!(
-                "Invalid SegmentsMap: expected {} segments, found {} (value='{}')",
-                expected,
-                parts.len(),
-                map
-            );
-        }
-        segments_normalized = parts;
-    }
-
-    Some(Attributes {
-        chapters: chapter_count.unwrap(),
-        duration: duration_hms.unwrap(),
-        filename: filename.unwrap(),
-        filesize: disk_size_bytes.unwrap(),
-        segments: segments_normalized,
-    })
-}
-
 // ------------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -312,24 +222,11 @@ pub struct Streams {
     pub subtitle: HashMap<usize, streams::SubtitleStream>,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Serialize)]
-pub struct Title {
-    pub attributes: Attributes,
-    pub streams: Streams,
-}
-
 // ------------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
-pub struct ParsedOutput {
-    pub content: parser::ContentRecord,
-    pub extract: HashMap<usize, Title>,
-    pub makemkv: parser::MakeMkvRecord,
-}
-
-#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct ScanResult {
-    pub parsed: Option<ParsedOutput>,
+    pub parsed: Option<parser::ContentRecord>,
     pub drives: Vec<DriveRecord>,
     pub issues: usize,
     pub errors: usize,
@@ -366,19 +263,23 @@ pub fn info(makemkvcon_bin: &Path, source: &str, min_length: usize) -> Option<Sc
         let reader = BufReader::new(stdout);
 
         // MSG:1005 - MakeMKV v1.18.3 win(x64-release) started
+        // MSG:5075 The new version 1.18.3 is available for download at http://www.makemkv.com/download/
         // MSG:1011 - Using LibreDrive mode (v02.1 id=3F03CED516D5)
+        // MSG:3006 Opening files on harddrive at file://<...>
         // MSG:3007 - Using direct disc access mode
-        // MSG:3028 - Title #1 was added (13 cell(s), 1:47:58)
         // MSG:3028 - Title #2 was added (7 cell(s), 0:06:07)
         // MSG:3025 - Title #3 has length of 20 seconds which is less than minimum title length of 120 seconds and was therefore skipped
-        // MSG:3025 - Title #4 has length of 14 seconds which is less than minimum title length of 120 seconds and was therefore skipped
+        // MSG:3307 File 00006.mpls was added as title #0
+        // MSG:3309 Title 00021.mpls(1) is equal to title 00006.mpls and was skipped
         // MSG:3038 - Cells 3-7 were removed from title end
+        // MSG:3344 Using Java runtime from /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+        // MSG:5085 Loaded content hash table, will verify integrity of M2TS files.
         // <...>
         // MSG:5011 - Operation successfully completed
-        // MSG:5014 - Saving 1 titles into directory file://extracted
-        // MSG:2019 - Error 'OS error - The system cannot find the path specified' occurred while creating 'extracted/B1_t00.mkv'
+        // MSG:5014 - Saving 1 titles into directory file://<...>
+        // MSG:2019 - Error 'OS error - The system cannot find the path specified' occurred while creating '<...>/B1_t00.mkv'
         // MSG:2024 - Unknown device - 'D:'
-        // MSG:5003 - Failed to save title 0 to file extracted/B1_t00.mkv
+        // MSG:5003 - Failed to save title 0 to file <...>/B1_t00.mkv
         // MSG:5004 - 0 titles saved, 1 failed
         // MSG:5010 - Failed to open disc
         // MSG:5037 - Copy complete. 0 titles saved, 1 failed.
@@ -387,16 +288,23 @@ pub fn info(makemkvcon_bin: &Path, source: &str, min_length: usize) -> Option<Sc
             (1011, parser::SeverityLevel::Info),
             (2019, parser::SeverityLevel::Error),
             (2024, parser::SeverityLevel::Error),
+            (3006, parser::SeverityLevel::Info),
             (3007, parser::SeverityLevel::Info),
             (3025, parser::SeverityLevel::Info),
             (3028, parser::SeverityLevel::Info),
             (3038, parser::SeverityLevel::Info),
+            (3306, parser::SeverityLevel::Info),
+            (3307, parser::SeverityLevel::Info),
+            (3309, parser::SeverityLevel::Info),
+            (3344, parser::SeverityLevel::Info),
             (5003, parser::SeverityLevel::Error),
             (5004, parser::SeverityLevel::Error),
             (5010, parser::SeverityLevel::Error),
             (5011, parser::SeverityLevel::Info),
             (5014, parser::SeverityLevel::Info),
             (5037, parser::SeverityLevel::Info),
+            (5075, parser::SeverityLevel::Warning),
+            (5085, parser::SeverityLevel::Info),
         ]);
 
         // silence messages related to optical drives when using the
@@ -415,95 +323,7 @@ pub fn info(makemkvcon_bin: &Path, source: &str, min_length: usize) -> Option<Sc
 
         scan_result.drives = parsed_output.drives;
 
-        let mut extract_map = HashMap::new();
-        // process titles in sorted order
-        // (sorted() requires crate itertools)
-        for title_idx in parsed_output.content.titles.keys().sorted() {
-            let title_record = parsed_output.content.titles[title_idx].clone();
-            // for (title_idx, title_record) in parsed_output.content.titles.clone() {
-            let attributes = match parse_attributes(title_record.attributes) {
-                Some(x) => x,
-                None => {
-                    warn!(
-                        "Internal error - unable to parse attributes of title '{}'! Skipping.",
-                        title_idx
-                    );
-                    continue;
-                }
-            };
-            let mut streams = Streams {
-                audio: HashMap::new(),
-                subtitle: HashMap::new(),
-                video: HashMap::new(),
-            };
-            for (stream_idx, stream_record) in title_record.streams {
-                match streams::parse_stream_record(stream_record.attributes) {
-                    streams::Stream::Audio(audio_stream) => {
-                        let mut duration = attributes.duration.clone();
-                        if duration.len() == 7 {
-                            // provided in 'H:MM:SS' format, e.g. '0:08:15'
-                            // (add a leading zero or speedate won't parse)
-                            duration = format!("0{}", attributes.duration);
-                        };
-                        // don't check titles shorter than 2 minutes
-                        // (probably a menu or legal warning)
-                        match speedate::Time::parse_str(&duration) {
-                            // warn if languages aren't provided (may cause issues later on)
-                            Ok(x) => {
-                                if x.total_seconds() > 120 {
-                                    if audio_stream.lang_code == "<unknown>" {
-                                        if audio_stream.lang_name == "<unknown>" {
-                                            warn!(
-                                                "Audio stream {} in title {} has no \"LangCode\" or \"LangName\"!",
-                                                stream_idx, title_idx
-                                            );
-                                        } else {
-                                            warn!(
-                                                "Audio stream {} in title {} has no \"LangCode\"!",
-                                                stream_idx, title_idx
-                                            );
-                                        }
-                                    } else if audio_stream.lang_name == "<unknown>" {
-                                        warn!(
-                                            "Audio stream {} in title {} has no \"LangName\"!",
-                                            stream_idx, title_idx
-                                        );
-                                    }
-                                }
-                            }
-                            Err(_) => {
-                                warn!(
-                                    "Unable to parse duration {} of title {}!",
-                                    attributes.duration, title_idx
-                                );
-                            }
-                        };
-                        streams.audio.insert(stream_idx, audio_stream);
-                    }
-                    streams::Stream::Subtitle(subtitle_stream) => {
-                        streams.subtitle.insert(stream_idx, subtitle_stream);
-                    }
-                    streams::Stream::Video(video_stream) => {
-                        streams.video.insert(stream_idx, video_stream);
-                    }
-                }
-            }
-            extract_map.insert(
-                *title_idx,
-                Title {
-                    attributes,
-                    streams,
-                },
-            );
-        }
-
-        let parsed = ParsedOutput {
-            content: parsed_output.content,
-            extract: extract_map,
-            makemkv: parsed_output.makemkv,
-        };
-
-        scan_result.parsed = Some(parsed);
+        scan_result.parsed = Some(parsed_output.content);
         scan_result.issues += parsed_output.issues;
         scan_result.errors += parsed_output.errors;
     }
@@ -559,13 +379,17 @@ pub fn mkv(
         let reader = BufReader::new(stdout);
 
         // MSG:1005 - MakeMKV v1.18.3 win(x64-release) started
+        // MSG:5075 The new version 1.18.3 is available for download at http://www.makemkv.com/download/
         // MSG:3007 - Using direct disc access mode
-        // MSG:3028 - Title #1 was added (13 cell(s), 1:47:58)
         // MSG:3028 - Title #2 was added (7 cell(s), 0:06:07)
         // MSG:3025 - Title #3 has length of 20 seconds which is less than minimum title length of 120 seconds and was therefore skipped
-        // MSG:3025 - Title #4 has length of 14 seconds which is less than minimum title length of 120 seconds and was therefore skipped
         // MSG:3038 - Cells 3-7 were removed from title end
-        // MSG:5014 - Saving 1 titles into directory file://extracted
+        // MSG:3006 Opening files on harddrive at file://<...>
+        // MSG:3307 File 00006.mpls was added as title #0
+        // MSG:3309 Title 00021.mpls(1) is equal to title 00006.mpls and was skipped
+        // MSG:3344 Using Java runtime from /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+        // MSG:5014 - Saving 1 titles into directory file://<...>
+        // MSG:5085 Loaded content hash table, will verify integrity of M2TS files.
         // <...>
         // -- success --
         // MSG:5005 - 1 titles saved
@@ -575,17 +399,21 @@ pub fn mkv(
         // MSG:5001 File ./B1_t00.mkv already exist. Do you want to overwrite it?
         // MSG:5005 1 titles saved
         // -- failure --
-        // MSG:2019 - Error 'OS error - The system cannot find the path specified' occurred while creating 'extracted/B1_t00.mkv'
-        // MSG:5003 - Failed to save title 0 to file extracted/B1_t00.mkv
+        // MSG:2019 - Error 'OS error - The system cannot find the path specified' occurred while creating '<...>/B1_t00.mkv'
+        // MSG:5003 - Failed to save title 0 to file <...>/B1_t00.mkv
         // MSG:5004 - 0 titles saved, 1 failed
         // MSG:5037 - Copy complete. 0 titles saved, 1 failed.
         let mut severity_map = HashMap::from([
             (1005, parser::SeverityLevel::Debug),
             (2019, parser::SeverityLevel::Error),
+            (3006, parser::SeverityLevel::Info),
             (3007, parser::SeverityLevel::Debug),
             (3025, parser::SeverityLevel::Debug),
             (3028, parser::SeverityLevel::Debug),
             (3038, parser::SeverityLevel::Debug),
+            (3307, parser::SeverityLevel::Debug),
+            (3309, parser::SeverityLevel::Debug),
+            (3344, parser::SeverityLevel::Debug),
             (5001, parser::SeverityLevel::Warning),
             (5003, parser::SeverityLevel::Error),
             (5004, parser::SeverityLevel::Error),
@@ -594,7 +422,21 @@ pub fn mkv(
             (5014, parser::SeverityLevel::Debug),
             (5036, parser::SeverityLevel::Debug),
             (5037, parser::SeverityLevel::Error),
+            (5075, parser::SeverityLevel::Warning),
+            (5085, parser::SeverityLevel::Debug),
         ]);
+
+        // MSG:2008 Program reads data faster than it can write to disk, consider upgrading your hard drive if you see many of these messages.
+        match &source_mkv {
+            Source::IsoFile(_) | Source::Directory(_) => {
+                // not reading from an optical drive; silence this message
+                severity_map.insert(2008, parser::SeverityLevel::Debug);
+            }
+            Source::DriveId(_) | Source::DeviceName(_) | Source::DriveLetter(_) => {
+                // reading from an optical drive; promote to warning
+                severity_map.insert(2008, parser::SeverityLevel::Warning);
+            }
+        }
 
         // silence messages related to optical drives when using the
         // filesystem as a source, promote to error when using a drive
