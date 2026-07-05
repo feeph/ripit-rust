@@ -12,3 +12,4 @@ makemkv = { workspace = true }
 regex = { workspace = true }
 serde = { features = ["derive", "std"], workspace = true }
 serde_yaml = { workspace = true }
+winapi = { features = ["fileapi", "winbase"], workspace = true }

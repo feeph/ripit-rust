@@ -681,6 +681,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_yaml",
+ "winapi",
 ]
 
 [[package]]
@@ -698,7 +699,6 @@ dependencies = [
  "serde",
  "serde_yaml",
  "which",
- "winapi",
 ]
 
 [[package]]
