@@ -293,6 +293,7 @@ pub fn info(makemkvcon_bin: &Path, source: &str, min_length: usize) -> Option<Sc
             (3006, parser::SeverityLevel::Info),
             (3007, parser::SeverityLevel::Info),
             (3025, parser::SeverityLevel::Info),
+            (3026, parser::SeverityLevel::Info),
             (3028, parser::SeverityLevel::Info),
             (3038, parser::SeverityLevel::Info),
             (3306, parser::SeverityLevel::Info),
