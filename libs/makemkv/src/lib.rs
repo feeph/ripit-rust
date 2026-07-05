@@ -157,7 +157,7 @@ pub fn backup(makemkvcon_bin: &Path, disc_id: u8, target: &Path, overwrite: bool
         // MSG:1005 - MakeMKV v1.18.3 win(x64-release) started
         // MSG:1011 - Using LibreDrive mode (v02.1 id=3F03CED516D5)
         // MSG:5042 - The program can't find any usable optical drives.
-        // MSG:5072 - Backing up disc into folder \file://Layer Cake (2001)\\LOGICAL_VOLUME_ID_5911EE08\""
+        // MSG:5072 - Backing up disc into folder \file://<directory>\""
         // MSG:5085 - Loaded content hash table, will verify integrity of M2TS files.
         // makemkvcon emits 2 "Backup failed/done" messages with different
         // message codes
@@ -264,6 +264,7 @@ pub fn info(makemkvcon_bin: &Path, source: &str, min_length: usize) -> Option<Sc
 
         // MSG:1005 - MakeMKV v1.18.3 win(x64-release) started
         // MSG:5075 The new version 1.18.3 is available for download at http://www.makemkv.com/download/
+        // MSG:3338 Downloading latest SDF to <homedir>/.MakeMKV ...
         // MSG:1011 - Using LibreDrive mode (v02.1 id=3F03CED516D5)
         // MSG:3006 Opening files on harddrive at file://<...>
         // MSG:3007 - Using direct disc access mode
@@ -271,6 +272,7 @@ pub fn info(makemkvcon_bin: &Path, source: &str, min_length: usize) -> Option<Sc
         // MSG:3025 - Title #3 has length of 20 seconds which is less than minimum title length of 120 seconds and was therefore skipped
         // MSG:3307 File 00006.mpls was added as title #0
         // MSG:3309 Title 00021.mpls(1) is equal to title 00006.mpls and was skipped
+        // MSG:3026 Title #11 declared length is 0:00:00 while its real length is 0:00:16 - assuming fake title
         // MSG:3038 - Cells 3-7 were removed from title end
         // MSG:3344 Using Java runtime from /usr/lib/jvm/java-17-openjdk-amd64/bin/java
         // MSG:5085 Loaded content hash table, will verify integrity of M2TS files.
@@ -296,6 +298,8 @@ pub fn info(makemkvcon_bin: &Path, source: &str, min_length: usize) -> Option<Sc
             (3306, parser::SeverityLevel::Info),
             (3307, parser::SeverityLevel::Info),
             (3309, parser::SeverityLevel::Info),
+            (3326, parser::SeverityLevel::Info),
+            (3338, parser::SeverityLevel::Info),
             (3344, parser::SeverityLevel::Info),
             (5003, parser::SeverityLevel::Error),
             (5004, parser::SeverityLevel::Error),
@@ -380,6 +384,7 @@ pub fn mkv(
 
         // MSG:1005 - MakeMKV v1.18.3 win(x64-release) started
         // MSG:5075 The new version 1.18.3 is available for download at http://www.makemkv.com/download/
+        // MSG:3338 Downloading latest SDF to <homedir>/.MakeMKV ...
         // MSG:3007 - Using direct disc access mode
         // MSG:3028 - Title #2 was added (7 cell(s), 0:06:07)
         // MSG:3025 - Title #3 has length of 20 seconds which is less than minimum title length of 120 seconds and was therefore skipped
@@ -387,6 +392,7 @@ pub fn mkv(
         // MSG:3006 Opening files on harddrive at file://<...>
         // MSG:3307 File 00006.mpls was added as title #0
         // MSG:3309 Title 00021.mpls(1) is equal to title 00006.mpls and was skipped
+        // MSG:3026 Title #11 declared length is 0:00:00 while its real length is 0:00:16 - assuming fake title
         // MSG:3344 Using Java runtime from /usr/lib/jvm/java-17-openjdk-amd64/bin/java
         // MSG:5014 - Saving 1 titles into directory file://<...>
         // MSG:5085 Loaded content hash table, will verify integrity of M2TS files.
@@ -409,10 +415,12 @@ pub fn mkv(
             (3006, parser::SeverityLevel::Info),
             (3007, parser::SeverityLevel::Debug),
             (3025, parser::SeverityLevel::Debug),
+            (3026, parser::SeverityLevel::Info),
             (3028, parser::SeverityLevel::Debug),
             (3038, parser::SeverityLevel::Debug),
             (3307, parser::SeverityLevel::Debug),
             (3309, parser::SeverityLevel::Debug),
+            (3338, parser::SeverityLevel::Info),
             (3344, parser::SeverityLevel::Debug),
             (5001, parser::SeverityLevel::Warning),
             (5003, parser::SeverityLevel::Error),
