@@ -77,7 +77,7 @@ The biggest benefits compared to makemkvcon are:
   user to provide a filename for each processed disc.
 - **Automatic identification of content type and output format.** DVDs are
   extracted as ISO files, BluRays are extracted as directories.
-- **No lies or ommissions.** `makemkvcon info --minlength=x` and
+- **No lies or omissions.** `makemkvcon info --minlength=x` and
   `makemkvcon mkv --minlength=x` are undocumented but vital to know.
   `makemkvcon backup` claims to support `dev:<device>` but doesn't.
   ripit-cli generates its help messages from its code, ensuring they are
