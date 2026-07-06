@@ -1,7 +1,6 @@
 # ripit-cli
 
-`ripit-cli` is a convenience wrapper for MakeMKV's command line utility
-'makemkvcon'.
+`ripit-cli` is a convenience wrapper for MakeMKV's command line utility.
 
 ## Purpose
 
