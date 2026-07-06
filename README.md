@@ -1,7 +1,7 @@
 # ripit-cli
 
-Ripit-cli is a convenience wrapper for MakeMKV's command line utility
-'makemkvcon', written in Rust.
+`ripit-cli` is a convenience wrapper for MakeMKV's command line utility
+'makemkvcon'.
 
 ## Purpose
 
@@ -9,12 +9,38 @@ MakeMKV's graphical interface (makemkv.exe) and command line utility
 (makemkvcon64.exe) are perfectly fine for processing a few discs. They
 become somewhat inconvenient after the first dozen.
 
-Ripit-cli makes it trivial to process your whole collection.
+`ripit-cli` makes it trivial to process your whole collection.
 
 > **Please note:** You still need to install MakeMKV.
 >
-> Ripit-cli is a wrapper for makemkvcon. It does not implement any disc
+> `ripit-cli` is a wrapper for `makemkvcon`. It does not implement disc
 > reading functionality.
+
+```MERMAID
+---
+title: ripit-cli in action
+---
+flowchart TD
+    ripit-cli["ripit-cli"]
+
+    unshackle("unshackle")
+    identify("identify medium")
+    backup["`**makemkvcon backup**`"]
+    parse1("parse output")
+    eject("eject medium")
+
+    extract("extract")
+    mkv["`**makemkvcon mkv**`"]
+    parse2("parse output")
+
+    scan("scan")
+    info["`**makemkvcon info**`"]
+    parse3("parse output")
+
+ripit-cli --> unshackle --> identify --> backup --> parse1 --> eject --> identify
+ripit-cli --> extract --> mkv --> parse2
+ripit-cli --> scan --> info --> parse3
+```
 
 **Using makemkvcon:**
 
