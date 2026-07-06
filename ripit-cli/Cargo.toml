@@ -10,6 +10,7 @@ version = "0.1.0"
 clap = { features = ["derive", "env"], workspace = true }
 env_logger = { workspace = true }
 exitcode = { workspace = true }
+itertools = { workspace = true }
 log = { workspace = true }
 makemkv = { workspace = true }
 range = { workspace = true }

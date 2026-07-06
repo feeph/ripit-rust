@@ -691,6 +691,7 @@ dependencies = [
  "clap",
  "env_logger",
  "exitcode",
+ "itertools",
  "log",
  "makemkv",
  "range",

@@ -273,6 +273,7 @@ pub fn info(makemkvcon_bin: &Path, source: &str, min_length: usize) -> Option<Sc
         // MSG:3307 File 00006.mpls was added as title #0
         // MSG:3309 Title 00021.mpls(1) is equal to title 00006.mpls and was skipped
         // MSG:3026 Title #11 declared length is 0:00:00 while its real length is 0:00:16 - assuming fake title
+        // MSG:3027 Title #03 in VTS 1 is equal to title #01 and was skipped
         // MSG:3038 - Cells 3-7 were removed from title end
         // MSG:3344 Using Java runtime from /usr/lib/jvm/java-17-openjdk-amd64/bin/java
         // MSG:5085 Loaded content hash table, will verify integrity of M2TS files.
@@ -294,6 +295,7 @@ pub fn info(makemkvcon_bin: &Path, source: &str, min_length: usize) -> Option<Sc
             (3007, parser::SeverityLevel::Info),
             (3025, parser::SeverityLevel::Info),
             (3026, parser::SeverityLevel::Info),
+            (3027, parser::SeverityLevel::Info),
             (3028, parser::SeverityLevel::Info),
             (3038, parser::SeverityLevel::Info),
             (3306, parser::SeverityLevel::Info),
