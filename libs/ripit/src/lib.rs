@@ -2,11 +2,12 @@
 */
 
 pub mod drives;
-pub mod eject;
+mod eject;
 pub mod extract;
 mod scan;
 mod unshackle;
 
+pub use eject::eject_medium;
 pub use scan::{ScanResult, scan_disc};
 pub use unshackle::{UnshackleResult, unshackle_disc};
 

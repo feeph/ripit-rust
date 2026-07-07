@@ -9,8 +9,7 @@ use clap::{Parser, ValueHint};
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
 
-use ripit::eject::eject_medium;
-use ripit::{UnshackleResult, unshackle_disc};
+use ripit::{UnshackleResult, eject_medium, unshackle_disc};
 
 #[derive(Parser, Debug)]
 pub struct CmdArgs {
