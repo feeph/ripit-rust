@@ -3,6 +3,13 @@
     https://www.makemkv.com/
 */
 
+// TODO consider adding special logic for "MSG:3309"+"MSG:3041"
+/*
+The Grand Budapest Hotel (2014) BluRay:
+  MSG:3309 Title 00851.mpls is equal to title 00801.mpls and was skipped
+  MSG:3041 Failed to add angle #7 for title #851
+*/
+
 #[macro_use]
 extern crate enum_primitive;
 
@@ -264,6 +271,8 @@ pub fn info(makemkvcon_bin: &Path, source: &str, min_length: usize) -> Option<Sc
 
         // MSG:1005 - MakeMKV v1.18.3 win(x64-release) started
         // MSG:5075 The new version 1.18.3 is available for download at http://www.makemkv.com/download/
+        // MSG:3324 Processing BD+ code using generic SVQ from builtin/generic.svq
+        // MSG:3328 BD+ code processed, got 1 FUT(s) for 20 clip(s)
         // MSG:3338 Downloading latest SDF to <homedir>/.MakeMKV ...
         // MSG:1011 - Using LibreDrive mode (v02.1 id=3F03CED516D5)
         // MSG:3006 Opening files on harddrive at file://<...>
@@ -271,7 +280,9 @@ pub fn info(makemkvcon_bin: &Path, source: &str, min_length: usize) -> Option<Sc
         // MSG:3028 - Title #2 was added (7 cell(s), 0:06:07)
         // MSG:3025 - Title #3 has length of 20 seconds which is less than minimum title length of 120 seconds and was therefore skipped
         // MSG:3307 File 00006.mpls was added as title #0
+        // MSG:3308 File 00800.mpls (angle 1) was added as title #8
         // MSG:3309 Title 00021.mpls(1) is equal to title 00006.mpls and was skipped
+        // MSG:3041 Failed to add angle #2 for title #850
         // MSG:3026 Title #11 declared length is 0:00:00 while its real length is 0:00:16 - assuming fake title
         // MSG:3027 Title #03 in VTS 1 is equal to title #01 and was skipped
         // MSG:3038 - Cells 3-7 were removed from title end
@@ -298,10 +309,14 @@ pub fn info(makemkvcon_bin: &Path, source: &str, min_length: usize) -> Option<Sc
             (3027, parser::SeverityLevel::Info),
             (3028, parser::SeverityLevel::Info),
             (3038, parser::SeverityLevel::Info),
+            (3041, parser::SeverityLevel::Warning),
             (3306, parser::SeverityLevel::Info),
             (3307, parser::SeverityLevel::Info),
+            (3308, parser::SeverityLevel::Info),
             (3309, parser::SeverityLevel::Info),
+            (3324, parser::SeverityLevel::Info),
             (3326, parser::SeverityLevel::Info),
+            (3328, parser::SeverityLevel::Info),
             (3338, parser::SeverityLevel::Info),
             (3344, parser::SeverityLevel::Info),
             (5003, parser::SeverityLevel::Error),
@@ -387,6 +402,8 @@ pub fn mkv(
 
         // MSG:1005 - MakeMKV v1.18.3 win(x64-release) started
         // MSG:5075 The new version 1.18.3 is available for download at http://www.makemkv.com/download/
+        // MSG:3324 Processing BD+ code using generic SVQ from builtin/generic.svq
+        // MSG:3328 BD+ code processed, got 1 FUT(s) for 20 clip(s)
         // MSG:3338 Downloading latest SDF to <homedir>/.MakeMKV ...
         // MSG:3007 - Using direct disc access mode
         // MSG:3028 - Title #2 was added (7 cell(s), 0:06:07)
@@ -394,7 +411,9 @@ pub fn mkv(
         // MSG:3038 - Cells 3-7 were removed from title end
         // MSG:3006 Opening files on harddrive at file://<...>
         // MSG:3307 File 00006.mpls was added as title #0
+        // MSG:3308 File 00800.mpls (angle 1) was added as title #8
         // MSG:3309 Title 00021.mpls(1) is equal to title 00006.mpls and was skipped
+        // MSG:3041 Failed to add angle #2 for title #850
         // MSG:3026 Title #11 declared length is 0:00:00 while its real length is 0:00:16 - assuming fake title
         // MSG:3344 Using Java runtime from /usr/lib/jvm/java-17-openjdk-amd64/bin/java
         // MSG:5014 - Saving 1 titles into directory file://<...>
@@ -421,8 +440,12 @@ pub fn mkv(
             (3026, parser::SeverityLevel::Info),
             (3028, parser::SeverityLevel::Debug),
             (3038, parser::SeverityLevel::Debug),
+            (3041, parser::SeverityLevel::Warning),
             (3307, parser::SeverityLevel::Debug),
+            (3308, parser::SeverityLevel::Debug),
             (3309, parser::SeverityLevel::Debug),
+            (3324, parser::SeverityLevel::Debug),
+            (3328, parser::SeverityLevel::Debug),
             (3338, parser::SeverityLevel::Info),
             (3344, parser::SeverityLevel::Debug),
             (5001, parser::SeverityLevel::Warning),
