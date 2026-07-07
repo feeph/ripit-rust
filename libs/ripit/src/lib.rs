@@ -4,8 +4,10 @@
 pub mod drives;
 pub mod eject;
 pub mod extract;
-pub mod scan;
+mod scan;
 pub mod unshackle;
+
+pub use scan::{ScanResult, scan_disc};
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

@@ -12,6 +12,8 @@ use itertools::Itertools;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
+use ripit::{ScanResult, scan_disc};
+
 #[derive(clap::ValueEnum, Clone, Default, Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum OutputFormat {
@@ -44,10 +46,7 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
         println!("[verbose] scan {}", args.source);
     }
 
-    // makemkvcon's default: 120 seconds
-    let min_length = 0;
-
-    let scan_result = match makemkv::info(makemkvcon_bin, &args.source, min_length) {
+    let scan_result = match scan_disc(makemkvcon_bin, &args.source) {
         Some(x) => x,
         None => {
             return exitcode::DATAERR;
@@ -96,7 +95,7 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
     exitcode::OK
 }
 
-fn generate_text(scan_result: &makemkv::ScanResult) -> String {
+fn generate_text(scan_result: &ScanResult) -> String {
     let mut lines = Vec::<String>::new();
     let mut total_size = 0;
 
