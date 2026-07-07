@@ -10,7 +10,7 @@ use clap::{Parser, ValueHint};
 use log::{debug, error, info, warn};
 
 use ripit::eject::eject_medium;
-use ripit::unshackle::{UnshackleResult, unshackle_disc};
+use ripit::{UnshackleResult, unshackle_disc};
 
 #[derive(Parser, Debug)]
 pub struct CmdArgs {
