@@ -1,8 +1,6 @@
 /*
 */
 
-mod yaml_utils;
-
 pub mod drives;
 pub mod eject;
 pub mod extract;

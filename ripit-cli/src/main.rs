@@ -7,7 +7,6 @@ mod cmd_extract;
 mod cmd_scan;
 mod cmd_unshackle;
 mod os_utils;
-mod yaml_utils;
 
 use clap::{Parser, Subcommand};
 use log::LevelFilter;

@@ -6,14 +6,12 @@
 
 mod os_utils;
 
-use std::{fs, path::Path};
+use std::path::Path;
 
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
 
 use makemkv::DriveRecord;
-
-use crate::yaml_utils::generate_yaml;
 
 fn find_drive_record(makemkvcon_bin: &Path, source: &str) -> Option<DriveRecord> {
     let (drive_records, _) = makemkv::drives(makemkvcon_bin);
@@ -117,36 +115,10 @@ pub fn unshackle_disc(
     let result = makemkv::backup(makemkvcon_bin, disc_id, &target_dump, allow_overwrite);
 
     // --------------------------------------------------------------------
-    // step 4 - scan extracted medium and save as YAML file
+    // step 4 - eject disk and return
     // --------------------------------------------------------------------
 
     if result {
-        debug!("step 4 - scan extracted content");
-        let min_length = 0;
-        target_yaml.add_extension("yaml");
-        info!("target_yaml: {}", target_yaml.to_string_lossy());
-        let scan_result =
-            match makemkv::info(makemkvcon_bin, &target_dump.to_string_lossy(), min_length) {
-                Some(x) => x,
-                None => {
-                    error!("Unable to scan '{}'!", source_str);
-                    return UnshackleResult::ScanFailure;
-                }
-            };
-
-        let yaml = generate_yaml(scan_result.parsed, true);
-        match fs::write(&target_yaml, yaml) {
-            Ok(_) => info!("Wrote scan output to '{}'.", target_yaml.display()),
-            Err(err) => {
-                error!(
-                    "Failed to write output file '{}': {}",
-                    target_yaml.display(),
-                    err
-                );
-                return UnshackleResult::ParseFailure;
-            }
-        }
-
         if eject_when_done {
             info!("Ejecting medium from '{}'.", source_str);
             crate::eject::eject_medium(source);

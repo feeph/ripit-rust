@@ -12,8 +12,6 @@ use itertools::Itertools;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
-use crate::yaml_utils::generate_yaml;
-
 #[derive(clap::ValueEnum, Clone, Default, Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum OutputFormat {
@@ -67,7 +65,7 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
     // generate output
     let output = match args.output_format {
         OutputFormat::Summary => generate_text(&scan_result),
-        OutputFormat::Yaml => generate_yaml(scan_result.parsed, true),
+        OutputFormat::Yaml => generate_yaml(scan_result.parsed),
     };
 
     // present output
@@ -154,4 +152,9 @@ fn generate_text(scan_result: &makemkv::ScanResult) -> String {
     lines.push(format!("total size: {:.1} GiB", total_size_gb));
 
     lines.join("\n")
+}
+
+fn generate_yaml<T: Serialize>(data: T) -> String {
+    let yaml_value = serde_yaml::to_value(&data).unwrap();
+    serde_yaml::to_string(&yaml_value).unwrap()
 }

@@ -2,8 +2,6 @@
     ripit-cli unshackle <SOURCE> <TARGET>
 */
 
-//mod os_utils;
-
 use std::path::Path;
 
 use clap::{Parser, ValueHint};
