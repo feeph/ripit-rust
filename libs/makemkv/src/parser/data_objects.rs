@@ -2,7 +2,7 @@
     data objects
 */
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::{
     api::DriveRecord,
@@ -106,9 +106,9 @@ pub struct MakeMkvRecord {
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
 pub struct StreamsRecord {
-    pub audio: HashMap<usize, AudioStream>,
-    pub subtitles: HashMap<usize, SubtitleStream>,
-    pub video: HashMap<usize, VideoStream>,
+    pub audio: BTreeMap<usize, AudioStream>,
+    pub subtitles: BTreeMap<usize, SubtitleStream>,
+    pub video: BTreeMap<usize, VideoStream>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
@@ -120,7 +120,7 @@ pub struct TitleRecord {
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct ContentRecord {
     pub info: ContentAttributes,
-    pub titles: HashMap<usize, TitleRecord>,
+    pub titles: BTreeMap<usize, TitleRecord>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize)]

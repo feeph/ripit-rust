@@ -4,7 +4,7 @@
 
 mod data_objects;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::streams::{Stream, parse_stream_record};
 use crate::{
@@ -108,7 +108,7 @@ pub fn process_output<R: std::io::BufRead>(
         },
         content: ContentRecord {
             info: ContentAttributes::default(),
-            titles: HashMap::new(),
+            titles: BTreeMap::new(),
         },
         issues: 0,
         errors: 0,

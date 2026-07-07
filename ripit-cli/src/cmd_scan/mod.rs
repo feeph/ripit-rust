@@ -112,12 +112,10 @@ fn generate_text(scan_result: &makemkv::ScanResult) -> String {
             ));
 
             lines.push("-".repeat(80));
-            for (tid, tr) in cr.titles.iter().sorted_by_key(|x| x.0) {
+            for (tid, tr) in cr.titles {
                 let filename = tr.info.output_file_name.clone().unwrap_or_default();
                 let duration = tr.info.duration.clone().unwrap_or_default();
                 lines.push(format!("{}: {} ({})", tid, filename, duration));
-                // lines.push(format!("  duration: {}", tr.info.duration.clone().unwrap_or_default()));
-                // lines.push(format!("  filesize: {} Bytes", tr.info.disk_size_bytes));
 
                 let mut audio_tracks = BTreeSet::<String>::new();
                 for (_, a_stream) in tr.streams.audio.clone() {
