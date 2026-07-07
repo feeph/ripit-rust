@@ -18,7 +18,7 @@ use crate::yaml_utils::generate_yaml;
 #[serde(rename_all = "lowercase")]
 enum OutputFormat {
     #[default]
-    Text,
+    Summary,
     Yaml,
 }
 
@@ -66,7 +66,7 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
 
     // generate output
     let output = match args.output_format {
-        OutputFormat::Text => generate_text(&scan_result),
+        OutputFormat::Summary => generate_text(&scan_result),
         OutputFormat::Yaml => generate_yaml(scan_result.parsed, true),
     };
 
