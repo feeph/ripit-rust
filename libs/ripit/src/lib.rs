@@ -1,9 +1,9 @@
 /*
 */
 
-pub mod drives;
+mod drives;
 mod eject;
-pub mod extract;
+mod extract;
 mod scan;
 mod unshackle;
 
