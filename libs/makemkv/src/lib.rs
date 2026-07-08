@@ -21,9 +21,10 @@ pub mod parser;
 pub mod source;
 
 use std::collections::HashMap;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::mpsc::Sender;
 
 pub use source::{Source, parse_source};
 pub use streams::{AudioStream, SubtitleStream, VideoStream};
@@ -32,6 +33,8 @@ pub use streams::{AudioStream, SubtitleStream, VideoStream};
 use log::{debug, error, info, warn};
 
 pub use crate::api::DriveRecord;
+use crate::api::MessageRecord;
+pub use crate::parser::{ParsedOutputLine, parse_output_line};
 
 pub fn drives(makemkvcon_bin: &Path) -> (Vec<api::DriveRecord>, usize) {
     // intentionally using an invalid drive specification 'disc:-1' since
@@ -91,30 +94,25 @@ fn calculate_write_rate(bytes_written: u64, elapsed: std::time::Duration) -> u64
     bytes_written.checked_div(seconds).unwrap_or_default()
 }
 
-pub fn backup(makemkvcon_bin: &Path, disc_id: u8, target: &Path, overwrite: bool) -> bool {
+pub enum BackupEvent {
+    Failure,
+    Message(MessageRecord),
+    Success,
+    Status(u64, u64),
+}
+
+pub fn backup(makemkvcon_bin: PathBuf, disc_id: u8, target: PathBuf, tx: Sender<BackupEvent>) {
     let source_mkv = format!("disc:{}", disc_id);
     let target_mkv = target.to_string_lossy().to_string();
-    info!("Extracting '{}' to '{}'.", source_mkv, target_mkv);
+    debug!("Extracting '{}' to '{}'.", source_mkv, target_mkv);
 
-    if overwrite && target.exists() {
-        if target.is_dir() {
-            info!(
-                "Removing existing directory '{}'.",
-                target.to_string_lossy()
-            );
-            std::fs::remove_dir_all(target).expect("Failed to remove existing directory");
-        } else if target.is_file() {
-            info!("Removing existing file '{}'.", target.to_string_lossy());
-            std::fs::remove_file(target).expect("Failed to remove existing file");
-        }
-    }
-
+    // 'makemkvcon backup <...>' requires the source to be provided as
+    // 'disc:#', using 'dev:<DeviceName>' is not supported
     let mut child = std::process::Command::new(makemkvcon_bin)
         .args(["--robot", "backup", &source_mkv, &target_mkv])
         .stdout(std::process::Stdio::piped())
         .spawn()
         .expect("Failed to spawn process");
-    let time_start = std::time::Instant::now();
 
     let stop_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let stop_flag_clone = stop_flag.clone();
@@ -126,11 +124,11 @@ pub fn backup(makemkvcon_bin: &Path, disc_id: u8, target: &Path, overwrite: bool
     // - if everything goes well `makemkvcon backup` itself creates no
     //   output while it's running; we add our own reporting of size and
     //   write rate so the user can see how fast/slow the extraction is
-    let target_cp = PathBuf::from(target);
+    let tx2 = tx.clone();
     let monitor = std::thread::spawn(move || {
         let mut write_start = std::time::Instant::now();
         while !stop_flag_clone.load(std::sync::atomic::Ordering::Relaxed) {
-            if !target_cp.exists() {
+            if !target.exists() {
                 // 'target' does not exist
                 // -> update the start time and go back to sleep
                 write_start = std::time::Instant::now();
@@ -142,70 +140,54 @@ pub fn backup(makemkvcon_bin: &Path, disc_id: u8, target: &Path, overwrite: bool
                 // at least one wait cycle has passed and there should
                 // be some data available now
                 // -> report progress to user
-                let size = calculate_filesystem_size(&target_cp);
-                let size_gib = size as f64 / f64::powf(1024.0, 3.0);
+                let size = calculate_filesystem_size(&target);
                 let write_rate = calculate_write_rate(size, write_start.elapsed());
-                let write_rate_mibs = write_rate as f64 / f64::powf(1024.0, 2.0);
-                info!(
-                    "Processed: {:5.2} GiB ({:.1} MiB/s)",
-                    size_gib, write_rate_mibs
-                );
+                tx2.send(BackupEvent::Status(size, write_rate)).unwrap();
             }
         }
     });
 
-    let mut result = true;
+    let mut result = false; // assume failure until we saw MSG:5081
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
-
-        // minimum title length does not matter for `makemkvcon backup`
-        let min_length = 0;
-
-        // MSG:1005 - MakeMKV v1.18.3 win(x64-release) started
-        // MSG:1011 - Using LibreDrive mode (v02.1 id=3F03CED516D5)
-        // MSG:5042 - The program can't find any usable optical drives.
-        // MSG:5072 - Backing up disc into folder \file://<directory>\""
-        // MSG:5085 - Loaded content hash table, will verify integrity of M2TS files.
-        // makemkvcon emits 2 "Backup failed/done" messages with different
-        // message codes
-        // -> hide the messages without a full-stop (MSG:5069 & MSG:5070)
-        // -- success --
-        // MSG:5070 - Backup done
-        // MSG:5081 - Backup done.
-        // -- failure --
-        // MSG:5069 - Backup failed
-        // MSG:5080 - Backup failed.
-        let severity_map = HashMap::from([
-            (1005, parser::SeverityLevel::Info),
-            (1011, parser::SeverityLevel::Info),
-            (5042, parser::SeverityLevel::Error),
-            (5069, parser::SeverityLevel::Debug),
-            (5070, parser::SeverityLevel::Debug),
-            (5072, parser::SeverityLevel::Debug),
-            (5080, parser::SeverityLevel::Error),
-            (5081, parser::SeverityLevel::Info),
-            (5085, parser::SeverityLevel::Info),
-        ]);
-        let parsed_output = parser::process_output(reader, min_length, &severity_map);
-        if parsed_output.errors > 0 {
-            result = false;
+        for line in reader.lines() {
+            match line {
+                Ok(line) => {
+                    debug!("{}", line);
+                    let parsed = parse_output_line(line.as_bytes());
+                    match parsed {
+                        // 'makemkvcon backup' generates MSG and DRV records
+                        ParsedOutputLine::DRV(_) => {
+                            // ignore drive records
+                        }
+                        ParsedOutputLine::MSG(msg) => {
+                            // MSG:5080 - Backup failed.
+                            // MSG:5081 - Backup done.
+                            if msg.code == 5081 {
+                                result = true;
+                            }
+                            tx.send(BackupEvent::Message(msg)).unwrap();
+                        }
+                        _ => {
+                            warn!("Found an unexpected record during backup:");
+                            warn!("{}", line);
+                        }
+                    }
+                }
+                Err(e) => error!("Error reading line: {}", e),
+            }
         }
     }
 
     let _ = child.wait();
-    let time_end = std::time::Instant::now();
     stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
     let _ = monitor.join();
 
-    let elapsed_seconds = time_end.duration_since(time_start).as_secs();
-
     if result {
-        info!("The backup completed after {} seconds.", elapsed_seconds);
+        tx.send(BackupEvent::Success).unwrap();
     } else {
-        error!("The backup failed after {} seconds.", elapsed_seconds);
+        tx.send(BackupEvent::Failure).unwrap();
     }
-
-    result
 }
 
 // ------------------------------------------------------------------------

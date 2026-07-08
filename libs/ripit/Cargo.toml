@@ -7,8 +7,10 @@ rust-version = { workspace = true }
 version = "0.1.0"
 
 [dependencies]
+chrono = { workspace = true }
 log = { workspace = true }
 makemkv = { workspace = true }
+phf = { features = ["macros"], workspace = true }
 regex = { workspace = true }
 serde = { features = ["derive", "std"], workspace = true }
 serde_yaml = { workspace = true }

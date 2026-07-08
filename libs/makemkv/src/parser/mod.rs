@@ -26,7 +26,7 @@ pub use data_objects::{
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, PartialEq)]
-enum ParsedOutputLine {
+pub enum ParsedOutputLine {
     DRV(DriveRecord),
     MSG(MessageRecord),
     CINFO(InfoRecord),
@@ -35,7 +35,7 @@ enum ParsedOutputLine {
     TCOUNT(usize),
 }
 
-fn parse_output_line(line: &[u8]) -> ParsedOutputLine {
+pub fn parse_output_line(line: &[u8]) -> ParsedOutputLine {
     // split input at first colon
     // "<id>:<data>" -> "<id>" and ":<data>"
     let idx = line.iter().position(|x| x == &b':').unwrap();

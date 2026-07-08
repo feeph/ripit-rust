@@ -9,7 +9,7 @@ use clap::{Parser, ValueHint};
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
 
-use ripit::{UnshackleResult, eject_medium, unshackle_disc};
+use ripit::{UnshackleError, eject_medium, unshackle_disc};
 
 #[derive(Parser, Debug)]
 pub struct CmdArgs {
@@ -60,13 +60,12 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
             eject_when_done,
             args.allow_overwrite,
         ) {
-            UnshackleResult::Success => {
+            Ok(_) => {
                 if !args.continuous {
                     return exitcode::OK;
                 }
             }
-            UnshackleResult::ReadFailure => {
-                // unable to read the disc at all
+            Err(UnshackleError::ReadError) => {
                 if args.continuous {
                     error!(
                         "Unable to read disc in drive '{}'! Idling for {} seconds.",
@@ -78,24 +77,11 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
                     return exitcode::OSFILE;
                 }
             }
-            UnshackleResult::ScanFailure | UnshackleResult::ParseFailure => {
-                // able to read the disc but unable to parse its content
-                if args.continuous {
-                    error!(
-                        "Unable to process disc in drive '{}'! Idling for {} seconds.",
-                        source_str, wait_time
-                    );
-                    eject_medium(&args.source);
-                    std::thread::sleep(dur);
-                } else {
-                    return exitcode::OSFILE;
-                }
-            }
-            UnshackleResult::NoDrive => {
+            Err(UnshackleError::NoDrive) => {
                 error!("Unable to find optical drive '{}'! Aborting.", source_str);
                 return exitcode::OSFILE;
             }
-            UnshackleResult::NoMedium => {
+            Err(UnshackleError::NoMedium) => {
                 if args.continuous {
                     info!(
                         "No disc found in drive '{}'. Idling for {} seconds.",
@@ -106,6 +92,10 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
                     info!("Unable to find medium in drive '{}'.", source_str);
                     return exitcode::OK;
                 }
+            }
+            Err(UnshackleError::LogError) => {
+                error!("Unable to create log file! Aborting.");
+                return exitcode::OSFILE;
             }
         }
     }
