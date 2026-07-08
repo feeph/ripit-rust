@@ -7,7 +7,6 @@
 mod os_utils;
 
 use makemkv::api::MessageRecord;
-use phf::phf_map;
 use std::io::Write;
 use std::path::Path;
 use std::sync::mpsc;
@@ -67,7 +66,7 @@ enum MsgSeverity {
     MSG:5070 - Backup done
     MSG:5081 - Backup done.
 */
-static SEVERITY_MAP: phf::Map<u32, MsgSeverity> = phf_map! {
+static SEVERITY_MAP: phf::Map<u32, MsgSeverity> = phf::phf_map! {
     1005u32 => MsgSeverity::Info,
     1011u32 => MsgSeverity::Info,
     2008u32 => MsgSeverity::Warning,
