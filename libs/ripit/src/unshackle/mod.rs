@@ -6,7 +6,6 @@
 
 mod os_utils;
 
-use chrono::Utc;
 use makemkv::api::MessageRecord;
 use phf::phf_map;
 use std::io::Write;
@@ -89,8 +88,8 @@ fn get_severity(msg_code: u32) -> MsgSeverity {
 }
 
 fn log_msg(fh: &mut std::fs::File, msg: MessageRecord, severity: char) {
-    let dt = Utc::now();
-    let timestamp: i64 = dt.timestamp();
+    let dt_now = chrono::Local::now();
+    let timestamp = dt_now.format("%Y-%m-%d %H:%M:%S");
 
     writeln!(
         fh,
