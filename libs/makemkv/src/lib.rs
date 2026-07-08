@@ -117,25 +117,30 @@ pub fn backup(makemkvcon_bin: PathBuf, disc_id: u8, target: PathBuf, tx: Sender<
     let stop_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let stop_flag_clone = stop_flag.clone();
 
-    // report size of 'target' while the extraction is running
-    // - `makemkvcon backup` takes about a minute before writing to the
-    //   filesystem; the presence of 'target' indicates that the backup
-    //   process has begun
-    // - if everything goes well `makemkvcon backup` itself creates no
-    //   output while it's running; we add our own reporting of size and
-    //   write rate so the user can see how fast/slow the extraction is
+    // 'makemkvcon backup <...>' reports nothing while it's writing the
+    // image to disc. If the reading slows down the user has no idea what's
+    // going on.
+    // - To provide a better user experience this function reports the file
+    //   size and write rate while the extraction is running.
+    // - Additionally this helps to keep the terminal session alive if
+    //   connected remotely. (The network connection may stall since there
+    //   is no output / traffic for ~20 minutes.)
+    //
+    // When creating an image it takes about a minute before anything is
+    // written to the filesystem. The presence of 'target' indicates that
+    // the backup process has begun and we can start the reporting.
     let tx2 = tx.clone();
     let monitor = std::thread::spawn(move || {
         let mut write_start = std::time::Instant::now();
         while !stop_flag_clone.load(std::sync::atomic::Ordering::Relaxed) {
             if !target.exists() {
-                // 'target' does not exist
+                // 'target' does not exist, backup hasn't started
                 // -> update the start time and go back to sleep
                 write_start = std::time::Instant::now();
                 std::thread::sleep(std::time::Duration::from_millis(500));
             } else {
                 // 'target' exists, the extraction has begun
-                // -> trigger a wait cycle
+                // -> trigger a wait cycle and start the reporting
                 std::thread::sleep(std::time::Duration::from_secs(30));
                 // at least one wait cycle has passed and there should
                 // be some data available now
