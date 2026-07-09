@@ -326,9 +326,15 @@ pub fn unshackle_disc(
     }
 
     if need_libre_drive && !have_libre_drive {
-        warn!("Please retry extraction using LibreDrive:");
+        warn!("Need LibreDrive to read this disc.");
         warn!("https://forum.makemkv.com/forum/viewtopic.php?t=18856 (What is LibreDrive?)");
-        warn!("https://forum.makemkv.com/forum/viewtopic.php?t=22896 (SDFtool Flasher)");
+
+        info!("Please retry extraction using 'LibreDrive':");
+        #[cfg(target_os = "linux")]
+        info!("- grant elevated privileges, e.g. use 'sudo'");
+        #[cfg(target_os = "windows")]
+        info!("- grant elevated privileges, e.g. 'Run as Administrator'");
+        info!("- confirm your drive is LibreDrive compatible");
     }
 
     // ensure that the child process completes
