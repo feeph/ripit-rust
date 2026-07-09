@@ -1,0 +1,21 @@
+[package]
+authors = { workspace = true }
+edition = "2024"
+license-file = { workspace = true }
+name = "makemkv"
+rust-version = { workspace = true }
+version = "0.1.0"
+
+[dependencies]
+async-stream = { workspace = true }
+csv = { workspace = true }
+enum_primitive = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
+num = { workspace = true }
+tokio = { features = ["process", "io-util"], workspace = true }
+regex = { workspace = true }
+serde = { features = ["derive", "std"], workspace = true }
+strum_macros = { workspace = true }
+itertools = { workspace = true }
+speedate = { workspace = true }

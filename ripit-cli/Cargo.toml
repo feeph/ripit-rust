@@ -1,0 +1,21 @@
+[package]
+authors = { workspace = true }
+edition = "2024"
+license-file = { workspace = true }
+name = "ripit-cli"
+rust-version = { workspace = true }
+version = "0.1.0"
+
+[dependencies]
+clap = { features = ["derive", "env"], workspace = true }
+env_logger = { workspace = true }
+exitcode = { workspace = true }
+itertools = { workspace = true }
+log = { workspace = true }
+makemkv = { workspace = true }
+range = { workspace = true }
+regex = { workspace = true }
+ripit = { workspace = true }
+serde = { features = ["derive", "std"], workspace = true }
+serde_yaml = { workspace = true }
+which = { workspace = true }
