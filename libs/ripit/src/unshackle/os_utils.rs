@@ -150,34 +150,18 @@ pub fn get_blkid(path: &str) -> Option<BlockId> {
 
 pub fn get_volume_id(path: &str) -> Option<String> {
     #[cfg(target_os = "linux")]
-    {
-        if let Some(block_id) = get_blkid(path) {
-            Some(format!("{}_{}", block_id.label, block_id.uuid))
-        } else {
-            None
-        }
+    if let Some(block_id) = get_blkid(path) {
+        return Some(block_id.uuid);
     }
 
     #[cfg(target_os = "windows")]
-    {
-        if let Some(volume_info) = get_volume_info(path) {
-            Some(format!(
-                "{}_{}",
-                volume_info.volume_name, volume_info.volume_serial
-            ))
-        } else {
-            None
-        }
+    if let Some(volume_info) = get_volume_info(path) {
+        Some(volume_info.volume_serial)
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        // not implemented
-        None
-    }
+    // ToDo implement for MacOS
+    // #[cfg(target_os = "macos")]
+    // ...
 
-    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    {
-        None
-    }
+    None
 }

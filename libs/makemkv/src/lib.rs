@@ -33,7 +33,7 @@ pub use streams::{AudioStream, SubtitleStream, VideoStream};
 use log::{debug, error, info, warn};
 
 pub use crate::api::DriveRecord;
-use crate::api::MessageRecord;
+use crate::api::{ContentType, MessageRecord};
 pub use crate::parser::{ParsedOutputLine, parse_output_line};
 
 pub fn drives(makemkvcon_bin: &Path) -> (Vec<api::DriveRecord>, usize) {
@@ -70,6 +70,28 @@ pub fn drives(makemkvcon_bin: &Path) -> (Vec<api::DriveRecord>, usize) {
     let _ = child.wait();
 
     (result, issues)
+}
+
+pub fn medium(
+    makemkvcon_bin: &Path,
+    dr: &DriveRecord,
+    max_tries: u8,
+) -> Option<(String, ContentType)> {
+    for i in 1..max_tries {
+        debug!(
+            "Detecting medium in drive '{}'. ({}/{})",
+            dr.index, i, max_tries
+        );
+        for drive in drives(makemkvcon_bin).0 {
+            if drive.index == dr.index {
+                let content_type = dr.content_type.clone();
+                return Some((drive.disc_name, content_type));
+            }
+        }
+        debug!("No medium detected: Wait and retry.");
+        std::thread::sleep(std::time::Duration::from_millis(2000));
+    }
+    None
 }
 
 fn calculate_filesystem_size(path: &std::path::Path) -> u64 {
