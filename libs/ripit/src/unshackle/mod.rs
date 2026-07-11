@@ -6,25 +6,28 @@
 
 mod os_utils;
 
-use makemkv::{api::MessageRecord, medium};
+use makemkv::api::MessageRecord;
+use std::collections::HashMap;
 use std::io::Write;
-use std::path::Path;
-use std::sync::mpsc;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Sender};
 
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
 
 use makemkv::{BackupEvent, DriveRecord};
 
+use crate::unshackle::Events::CreateBackup;
+
 pub enum UnshackleError {
-    NoDrive,
+    NoDrivesFound,
     NoMedium,
     ReadError,
     LogError,
 }
 
 fn find_drive_record(makemkvcon_bin: &Path, source: &str) -> Option<DriveRecord> {
-    let (drive_records, _) = makemkv::drives(makemkvcon_bin);
+    let drive_records = makemkv::drives(makemkvcon_bin);
 
     // find the drive matching the provided device name
     // - provides mapping from device name to disc id (required for backup)
@@ -106,63 +109,73 @@ fn log_msg(fh: &mut std::fs::File, msg: MessageRecord, severity: char) {
     .unwrap();
 }
 
-pub fn unshackle_disc(
-    makemkvcon_bin: &Path,
-    source: &Path,
-    target: &Path,
-    eject_when_done: bool,
-    allow_overwrite: bool,
-) -> Result<bool, UnshackleError> {
-    let source_str = source.to_string_lossy().into_owned();
-    let target_str = target.to_string_lossy().to_string();
+struct BackupTask {
+    device_name: String,
+    current_try: u8,
+}
 
-    // --------------------------------------------------------------------
-    // step 1 - scan drives
-    // --------------------------------------------------------------------
-    // Performing 'scan drive' before 'identify medium' allows us to
-    // distinguish between:
-    //   a) the user made an error and the specified drive does not exist
-    //   b) the drive exists but there is no medium or it is unreadable
+enum Events {
+    DetectedDrives(HashMap<String, DriveRecord>),
+    DetectedMedium((String, String)),
+    CreateBackup((String, String)),
+    BackupFailure(String),
+    BackupSuccess(String),
+    NeedLibreDrive(String),
+}
 
-    debug!("step 1 - identify drive id for drive '{}'", source_str);
+async fn detect_drives(makemkvcon_bin: PathBuf, tx: Sender<Events>) {
+    info!("detect_drives()");
+    let mut drive_map = HashMap::new();
 
-    let drive = match find_drive_record(makemkvcon_bin, &source_str) {
-        Some(dr) => {
-            debug!("Found optical drive: {} (id: {})", dr.device_name, dr.index);
-            dr
-        }
-        None => {
-            return Err(UnshackleError::NoDrive);
-        }
-    };
+    // TODO consider using a map comprehension to make this a one-liner
+    for drive in makemkv::drives(&makemkvcon_bin) {
+        let drive_name = drive.drive_name.clone();
+        drive_map.insert(drive_name, drive);
+    }
 
-    // --------------------------------------------------------------------
-    // step 2 - identify medium (block id, volume label and content type)
-    // --------------------------------------------------------------------
-    // target_img - the filename used by makemkvcon (a file or directory)
-    // target_log - the filename used for logging makemkvcon's output
+    tx.send(Events::DetectedDrives(drive_map)).unwrap();
+    info!("drives detected");
+}
 
-    debug!("step 2 - identify medium in drive '{}'", source_str);
+async fn detect_volume(device_name: String, tx: Sender<Events>) {
+    info!("detect_volume()");
 
-    let (volume_name, content_type) = match medium(makemkvcon_bin, &drive, 3) {
-        Some(x) => x,
-        None => {
-            return Err(UnshackleError::NoMedium);
-        }
-    };
-
-    let volume_id = match os_utils::get_volume_id(&source_str) {
-        Some(x) => {
+    match os_utils::get_volume_id(&device_name) {
+        Some(volume_id) => {
             debug!(
-                "Drive '{}' contains a medium with volume ID '{}'.",
-                source_str, x
+                "Detected a medium with volume id '{}' in drive '{}'.",
+                volume_id, device_name
             );
-            x
+            tx.send(Events::DetectedMedium((device_name, volume_id)))
+                .unwrap();
         }
         None => {
-            return Err(UnshackleError::NoMedium);
+            debug!("Detected no medium in drive '{}'.", device_name)
         }
     };
+}
+
+async fn backup_volume(
+    makemkvcon_bin: PathBuf,
+    device_name: String,
+    target: PathBuf,
+    volume_id: String,
+    allow_overwrite: bool,
+    tx: Sender<Events>,
+) {
+    info!("backup_volume()");
+
+    // This call is going to slow down all currently running backups but it
+    // can't be avoided. We need to know the content type and that
+    // information is part of the DRV record.
+    let dr = find_drive_record(&makemkvcon_bin, &device_name).unwrap();
+
+    let volume_name = dr.device_name;
+    let content_type = dr.content_type;
+
+    // ------------------------------------------------------------
+    // step 1 - generate filenames
+    // ------------------------------------------------------------
 
     // append volume ID to target in order to create a unique
     // filesystem location for each disc (this is a precaution
@@ -178,24 +191,19 @@ pub fn unshackle_disc(
         target_img.push(format!("{}_{}", volume_name, volume_id));
     } else {
         // TODO figure out how AACS, BDSVM, HD-DVD are extracted
-        warn!("Don't know how to handle AACS, BDSVM, HD-DVD. Assuming ISO.");
+        warn!(
+            "[{}] Don't know how to handle AACS, BDSVM, HD-DVD. Assuming ISO.",
+            volume_id
+        );
         target_img.push(format!("{}_{}.iso", volume_name, volume_id));
     };
 
-    // derive log filename from the image filename
-    let mut target_log = target_img.clone();
-    target_log.set_extension(".log");
+    let mut target_log = target.to_path_buf();
+    target_log.push(format!("{}_{}.log", volume_name, volume_id));
 
     // ------------------------------------------------------------
-    // step 3 - create log file
+    // step 2 - create log file
     // ------------------------------------------------------------
-
-    debug!(
-        "step 3 - create log file '{}'",
-        target_log.to_string_lossy()
-    );
-
-    debug!("log file '{}'.", target_log.to_string_lossy());
 
     // creating the log file may fail if the parent directory does not exist
     let target_dir = target_log.parent().unwrap();
@@ -205,59 +213,60 @@ pub fn unshackle_disc(
 
     let mut fh = match std::fs::File::create(&target_log) {
         Ok(fh) => {
-            info!("Using log file '{}'.", target_log.to_string_lossy());
+            info!("[{}] Using log file '{}'.", device_name, volume_id);
             fh
         }
         Err(_) => {
-            return Err(UnshackleError::LogError);
+            tx.send(Events::BackupFailure(volume_id)).unwrap();
+            return;
         }
     };
 
     // ------------------------------------------------------------
-    // step 4 - prepare target
+    // step 3 - prepare target
     // ------------------------------------------------------------
-
-    debug!("step 3 - prepare target '{}'", target_img.to_string_lossy());
 
     if allow_overwrite && target_img.exists() {
         if target_img.is_dir() {
             info!(
-                "Removing existing directory '{}'.",
+                "[{}] Removing existing directory '{}'.",
+                volume_id,
                 target_img.to_string_lossy()
             );
             std::fs::remove_dir_all(&target_img).expect("Failed to remove existing directory!");
         } else if target_img.is_file() {
-            info!("Removing existing file '{}'.", target_img.to_string_lossy());
+            info!(
+                "[{}] Removing existing file '{}'.",
+                volume_id,
+                target_img.to_string_lossy()
+            );
             std::fs::remove_file(&target_img).expect("Failed to remove existing file!");
         }
     }
 
     // ------------------------------------------------------------
-    // initialize communication channel
+    // step 4 - extract content
     // ------------------------------------------------------------
 
-    let (tx, rx) = mpsc::channel::<BackupEvent>();
+    let (tx_bkp, rx_bkp) = mpsc::channel::<BackupEvent>();
 
-    // ------------------------------------------------------------
-    // step 5 - extract content
-    // ------------------------------------------------------------
+    let makemkvcon = makemkvcon_bin.to_path_buf();
+    let disc_id = dr.index;
 
-    debug!("step 3 - extract content");
+    info!(
+        "[{}] Extracting '{}' to '{}'.",
+        volume_id,
+        device_name,
+        target_img.to_string_lossy()
+    );
 
     let time_start = std::time::Instant::now();
-    let makemkvcon = makemkvcon_bin.to_path_buf();
-    let disc_id = drive.index;
-
-    info!("Extracting '{}' to '{}'.", source_str, target_str);
-    let handle = std::thread::spawn(move || makemkv::backup(makemkvcon, disc_id, target_img, tx));
-
-    #[allow(unused_assignments)]
-    let mut result: Result<bool, UnshackleError> = Err(UnshackleError::ReadError);
+    std::thread::spawn(move || makemkv::backup(makemkvcon, disc_id, target_img, tx_bkp));
 
     let mut have_libre_drive = false;
-    let mut need_libre_drive = false;
+    let mut event_sent = false;
     loop {
-        match rx.recv() {
+        match rx_bkp.recv() {
             Ok(BackupEvent::Message(msg)) => {
                 // MSG:1011 - Using LibreDrive mode (v06.3 id=0FA242DD4D0B)
                 if msg.code == 1011 && msg.params[0].starts_with("Using LibreDrive mode") {
@@ -268,28 +277,33 @@ pub fn unshackle_disc(
                 if msg.code == 2003
                     && msg.params[0]
                         == "Scsi error - ILLEGAL REQUEST:READ OF SCRAMBLED SECTOR WITHOUT AUTHENTICATION"
+                    && !have_libre_drive
+                    && !event_sent
                 {
-                    need_libre_drive = true;
+                    tx.send(Events::NeedLibreDrive(device_name.clone()))
+                        .unwrap();
+                    // this message may occur multiple times - only send once
+                    event_sent = true;
                 }
                 match get_severity(msg.code) {
                     MsgSeverity::Noise => {
-                        debug!("[makemkv] {}", msg.message);
+                        debug!("[{}] {}", volume_id, msg.message);
                         log_msg(&mut fh, msg, 'I');
                     }
                     MsgSeverity::Info => {
-                        info!("[makemkv] {}", msg.message);
+                        info!("[{}] {}", volume_id, msg.message);
                         log_msg(&mut fh, msg, 'I');
                     }
                     MsgSeverity::Warning => {
-                        warn!("[makemkv] {}", msg.message);
+                        warn!("[{}] {}", volume_id, msg.message);
                         log_msg(&mut fh, msg, 'W');
                     }
                     MsgSeverity::Error => {
-                        error!("[makemkv] {}", msg.message);
+                        error!("[{}] {}", volume_id, msg.message);
                         log_msg(&mut fh, msg, 'E');
                     }
                     MsgSeverity::Unknown => {
-                        warn!("[makemkv] {}", msg.message);
+                        warn!("[{}] {}", volume_id, msg.message);
                         log_msg(&mut fh, msg, 'U');
                     }
                 }
@@ -310,12 +324,24 @@ pub fn unshackle_disc(
                 );
             }
             Ok(BackupEvent::Success) => {
-                result = Ok(true);
-                break;
+                let time_end = std::time::Instant::now();
+                let elapsed_seconds = time_end.duration_since(time_start).as_secs();
+                info!(
+                    "[{}] The backup completed after {} seconds.",
+                    volume_id, elapsed_seconds
+                );
+                tx.send(Events::BackupSuccess(volume_id)).unwrap();
+                return;
             }
             Ok(BackupEvent::Failure) => {
-                result = Err(UnshackleError::ReadError);
-                break;
+                let time_end = std::time::Instant::now();
+                let elapsed_seconds = time_end.duration_since(time_start).as_secs();
+                error!(
+                    "[{}] The backup failed after {} seconds.",
+                    volume_id, elapsed_seconds
+                );
+                tx.send(Events::BackupFailure(volume_id)).unwrap();
+                return;
             }
             Err(x) => {
                 // unable to read from communication channel
@@ -324,43 +350,170 @@ pub fn unshackle_disc(
             }
         }
     }
+}
 
-    if need_libre_drive && !have_libre_drive {
-        warn!("Need LibreDrive to read this disc.");
-        warn!("https://forum.makemkv.com/forum/viewtopic.php?t=18856 (What is LibreDrive?)");
-
-        info!("Please retry extraction using 'LibreDrive':");
-        #[cfg(target_os = "linux")]
-        info!("- grant elevated privileges, e.g. use 'sudo'");
-        #[cfg(target_os = "windows")]
-        info!("- grant elevated privileges, e.g. 'Run as Administrator'");
-        info!("- confirm your drive is LibreDrive compatible");
-    }
-
-    // ensure that the child process completes
-    handle.join().unwrap();
+pub async fn unshackle_discs(
+    makemkvcon_bin: &Path,
+    drives: &[String],
+    target: &PathBuf,
+    eject_when_done: bool,
+    allow_overwrite: bool,
+    continuous: bool,
+) -> Result<bool, UnshackleError> {
+    info!("unshackle_discs()");
 
     // --------------------------------------------------------------------
-    // step 6 - eject disk and return
+    // initialize communication channel
     // --------------------------------------------------------------------
 
-    debug!("step 3 - eject disk and return");
+    let (tx, rx) = mpsc::channel::<Events>();
 
-    let time_end = std::time::Instant::now();
-    let elapsed_seconds = time_end.duration_since(time_start).as_secs();
+    // --------------------------------------------------------------------
+    // handle events
+    // --------------------------------------------------------------------
+    // 'drives'      - what the user wants us to scan
+    // 'drives_have' - all drives currently present in the system
+    //                 (may change over time)
+    // 'drives_scan' - all drives that should be used for imaging
+    //                 (same as 'drives_have' if user didn't select any)
 
-    match result {
-        Ok(_) => {
-            info!("The backup completed after {} seconds.", elapsed_seconds);
-            if eject_when_done {
-                info!("Ejecting medium from '{}'.", source_str);
-                crate::eject::eject_medium(source);
+    let mut drives_have = HashMap::new();
+    let mut drives_scan = Vec::<DriveRecord>::new();
+
+    // volume_id -> (device, current_try)
+    let mut todo_list = HashMap::<String, BackupTask>::new();
+    let max_tries = 3;
+
+    let mut need_drive_scan = false;
+
+    loop {
+        // trigger required functions:
+        // - validate drives
+        // - determine if drive contains medium
+        // - start extraction
+        // - create log
+        // - cleanup if fail or clobber existing files
+        // - eject
+        // - repeat
+
+        // detect drives (including hot-plugged USB drives)
+        if drives_have.is_empty() || need_drive_scan {
+            let my_mmc = PathBuf::from(makemkvcon_bin);
+            let my_tx = tx.clone();
+            detect_drives(my_mmc, my_tx).await;
+            // ensure that the child process completes
+            // handle.join().unwrap();
+        }
+
+        // determine whether a drive contains medium
+        // (avoid 'makemkv info' since it's slow and triggers all drives)
+        for drive in drives_scan.clone() {
+            info!("Need to scan drive '{}'.", drive.device_name);
+            let my_tx = tx.clone();
+            detect_volume(drive.device_name, my_tx).await;
+        }
+
+        // react to events
+
+        match rx.recv() {
+            Ok(Events::DetectedDrives(drives_found)) => {
+                drives_have = drives_found;
+                if drives.is_empty() {
+                    // populate 'drives_scan' with all drives
+                    for (_, drive_record) in drives_have.clone() {
+                        drives_scan.push(drive_record);
+                    }
+                } else {
+                    // populate 'drives_scan' with matching drives
+                    for (drive_name, drive_record) in drives_have.clone() {
+                        if drives.contains(&drive_name) {
+                            drives_scan.push(drive_record);
+                        }
+                    }
+                }
+            }
+            Ok(Events::DetectedMedium((device_name, volume_id))) => {
+                // - start extraction
+                // - create log
+                // - cleanup if fail or clobber existing files
+                let my_id = volume_id.clone();
+                let my_dn = device_name.clone();
+                todo_list.insert(
+                    my_id,
+                    BackupTask {
+                        device_name: my_dn,
+                        current_try: 1,
+                    },
+                );
+                tx.send(CreateBackup((device_name, volume_id))).unwrap();
+            }
+            Ok(Events::CreateBackup((device_name, volume_id))) => {
+                let my_mmc = PathBuf::from(makemkvcon_bin);
+                let my_tgt = PathBuf::from(target);
+                let my_tx = tx.clone();
+                backup_volume(
+                    my_mmc,
+                    device_name,
+                    my_tgt,
+                    volume_id,
+                    allow_overwrite,
+                    my_tx,
+                )
+                .await;
+            }
+            Ok(Events::BackupSuccess(volume_id)) => {
+                let task = todo_list.remove(&volume_id).unwrap();
+                if eject_when_done || continuous {
+                    info!("Ejecting medium from '{}'.", task.device_name);
+                    crate::eject::eject_medium(&PathBuf::from(task.device_name));
+                }
+            }
+            Ok(Events::BackupFailure(volume_id)) => {
+                let task = todo_list.get_mut(&volume_id).unwrap();
+                if task.current_try < max_tries {
+                    task.current_try += 1;
+                    tx.send(CreateBackup((task.device_name.clone(), volume_id)))
+                        .unwrap();
+                } else {
+                    warn!("Giving up and ejecting medium from '{}'.", task.device_name);
+                    crate::eject::eject_medium(&PathBuf::from(&task.device_name));
+                }
+            }
+            Ok(Events::NeedLibreDrive(device_name)) => {
+                warn!("Need LibreDrive to read disc in drive '{}'!", device_name);
+                warn!(
+                    "https://forum.makemkv.com/forum/viewtopic.php?t=18856 (What is LibreDrive?)"
+                );
+
+                info!("Please retry extraction using 'LibreDrive':");
+                #[cfg(target_os = "linux")]
+                info!("- grant elevated privileges, e.g. use 'sudo'");
+                #[cfg(target_os = "windows")]
+                info!("- grant elevated privileges, e.g. 'Run as Administrator'");
+                info!("- confirm your drive is LibreDrive compatible");
+            }
+            Err(x) => {
+                // unable to read from communication channel
+                // (channel was closed without Success/Failure event?)
+                error!("Internal error: {}", x)
             }
         }
-        Err(_) => {
-            error!("The backup failed after {} seconds.", elapsed_seconds);
+
+        // TODO "one shot" may terminate too quickly
+
+        info!("exit, stage left");
+
+        if drives_have.is_empty() {
+            if continuous {
+                need_drive_scan = true;
+                // suspend and wait for drives to be hot-added
+                std::thread::sleep(std::time::Duration::from_secs(5));
+            } else {
+                // signal an error condition
+                return Err(UnshackleError::NoDrivesFound);
+            }
+        } else if !continuous {
+            return Ok(true);
         }
     }
-
-    result
 }

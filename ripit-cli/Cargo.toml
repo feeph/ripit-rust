@@ -10,6 +10,7 @@ version = "0.1.0"
 clap = { features = ["derive", "env"], workspace = true }
 env_logger = { workspace = true }
 exitcode = { workspace = true }
+futures.workspace = true
 itertools = { workspace = true }
 log = { workspace = true }
 makemkv = { workspace = true }
@@ -18,4 +19,5 @@ regex = { workspace = true }
 ripit = { workspace = true }
 serde = { features = ["derive", "std"], workspace = true }
 serde_yaml = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 which = { workspace = true }

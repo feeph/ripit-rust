@@ -156,7 +156,7 @@ pub fn get_volume_id(path: &str) -> Option<String> {
 
     #[cfg(target_os = "windows")]
     if let Some(volume_info) = get_volume_info(path) {
-        Some(volume_info.volume_serial)
+        return Some(volume_info.volume_serial);
     }
 
     // ToDo implement for MacOS

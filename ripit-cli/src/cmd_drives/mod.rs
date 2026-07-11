@@ -21,9 +21,9 @@ pub struct CmdArgs {
 }
 
 pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
-    let (result, issues) = makemkv::drives(makemkvcon_bin);
-    if !result.is_empty() {
-        let yaml = serde_yaml::to_string(&result).unwrap();
+    let drives = makemkv::drives(makemkvcon_bin);
+    if !drives.is_empty() {
+        let yaml = serde_yaml::to_string(&drives).unwrap();
         if let Some(output_file) = args.output_file {
             match fs::write(&output_file, yaml) {
                 Ok(_) => info!("Wrote scan output to '{}'.", output_file.display()),
@@ -43,13 +43,5 @@ pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
         info!("Unable to find any optical drives.")
     }
 
-    if issues > 0 {
-        warn!(
-            "Detected {} potential issues during parsing! Please validate.",
-            issues
-        );
-        exitcode::OK
-    } else {
-        exitcode::DATAERR
-    }
+    exitcode::OK
 }

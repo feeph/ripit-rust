@@ -33,12 +33,13 @@ struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
 }
-
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::Builder::from_default_env()
         .filter_level(LevelFilter::Info)
         .init();
 
+    // TODO validate that 'makemkvcon' is present
     let makemkvcon_bin = os_utils::find_makemkvcon();
     log::info!("Using binary '{}'.", makemkvcon_bin.to_string_lossy());
 

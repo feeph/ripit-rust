@@ -36,7 +36,7 @@ pub use crate::api::DriveRecord;
 use crate::api::{ContentType, MessageRecord};
 pub use crate::parser::{ParsedOutputLine, parse_output_line};
 
-pub fn drives(makemkvcon_bin: &Path) -> (Vec<api::DriveRecord>, usize) {
+pub fn drives(makemkvcon_bin: &Path) -> Vec<api::DriveRecord> {
     // intentionally using an invalid drive specification 'disc:-1' since
     // we're interested only in the 'disc id' to 'drive' mapping and don't
     // want to parse any inserted disc
@@ -47,7 +47,6 @@ pub fn drives(makemkvcon_bin: &Path) -> (Vec<api::DriveRecord>, usize) {
         .expect("Failed to spawn process");
 
     let mut result: Vec<api::DriveRecord> = Vec::new();
-    let mut issues: usize = 0;
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
 
@@ -65,11 +64,10 @@ pub fn drives(makemkvcon_bin: &Path) -> (Vec<api::DriveRecord>, usize) {
         let parsed_output = parser::process_output(reader, 0, &severity_map);
 
         result = parsed_output.drives;
-        issues = parsed_output.issues;
     }
     let _ = child.wait();
 
-    (result, issues)
+    result
 }
 
 pub fn medium(
@@ -82,7 +80,7 @@ pub fn medium(
             "Detecting medium in drive '{}'. ({}/{})",
             dr.index, i, max_tries
         );
-        for drive in drives(makemkvcon_bin).0 {
+        for drive in drives(makemkvcon_bin) {
             if drive.index == dr.index {
                 let content_type = dr.content_type.clone();
                 return Some((drive.disc_name, content_type));
