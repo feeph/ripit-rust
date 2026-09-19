@@ -1,0 +1,1115 @@
+/*
+    interface library for MakeMKV's console application (makemkvcon)
+    https://www.makemkv.com/
+*/
+
+// TODO consider adding special logic for "MSG:3309"+"MSG:3041"
+/*
+The Grand Budapest Hotel (2014) BluRay:
+  MSG:3309 Title 00851.mpls is equal to title 00801.mpls and was skipped
+  MSG:3041 Failed to add angle #7 for title #851
+*/
+
+#[macro_use]
+extern crate enum_primitive;
+
+mod apdefs_h;
+mod parser;
+mod runner;
+
+// standard library imports
+use std::collections::HashMap;
+use std::path::Path;
+use std::path::PathBuf;
+
+// third-party imports
+#[allow(unused_imports)]
+use log::{debug, error, info, warn};
+use tokio::spawn;
+use tokio::sync::mpsc::{self, Sender};
+use tokio::task::JoinError;
+
+use crate::Source::DiscId;
+use crate::api::ProgressCurrentRecord;
+use crate::api::ProgressTotalRecord;
+use crate::api::ProgressValueRecord;
+use crate::runner::DiscContent;
+
+// ------------------------------------------------------------------------
+// public interface
+// ------------------------------------------------------------------------
+
+pub mod api;
+
+pub use api::{ContentType, DrvRecord, DrvStatus, InfoRecord, MsgRecord};
+pub use runner::{DirectIO, GlobalSettings, MakeMkvError, MakeMkvEvent, OutputType, Source, StreamRecord, run_makemkvcon, parse_source};
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Event {
+    // messages
+    MSG(Message),
+    // drive-related events (includes medium info)
+    DRV(DrvRecord),
+    // content-related events
+    TCOUNT(usize),
+    CINFO(InfoRecord),
+    TINFO((usize, InfoRecord)),
+    SINFO((usize, usize, InfoRecord)),
+    // progress-related events
+    PRGT(ProgressTotalRecord),
+    PRGC(ProgressCurrentRecord),
+    PRGV(ProgressValueRecord),
+}
+
+/// returns all drives recognized by MakeMKV
+/// (expected output: 0 to 15 drives)
+/// - the available drives may change over time, e.g. after adding
+///   or removing a USB drive
+/// - adding/removing a SATA drive is possible (may require a bus scan),
+///   e.g.: `echo "- - -" > /sys/class/scsi_host/host1/scan`
+/// 
+/// Setting 'noscan' to true greatly improves the speed of this operation
+/// at the cost of not knowing if a medium is inserted. It is recommended
+/// to set this parameter to true whenever you are interested exclusively
+/// in the drive and don't need to identify if there's a media loaded and
+/// what is contained on it.
+/// - 3 drives with media and no scanning:  ~1.4 seconds
+/// - 3 drives with media and scanning:     ~16  seconds
+// pub async fn find_all_drives(makemkvcon_bin: PathBuf, noscan: bool, tx: Sender<DrvEvent>) -> Result<Vec<Drive>, DriveError> {
+//     // Intentionally referring to invalid disc '255'. This ensures the
+//     // command returns as quickly as possible without performing any read
+//     // operations on any drive.
+//     let drive = Drive {
+//         index: 255,
+//         drive_status_num: 256,
+//         drive_status: Some(DrvStatus::NoDrive),
+//         is_enabled: 1,
+//         drive_name: "DummyDrive".to_string(),
+//         device_name: "/dev/null".to_string(),
+//     };
+
+//     let args = if noscan {
+//         "--robot --noscan info disc:-1"
+//     } else {
+//         "--robot info disc:-1"
+//     }.split(" ").map(|v| v.to_string()).collect();
+
+//     // see 'docs/makemkv-output.md' for examples of makemkvcon's output
+//     let (tx_mkv, mut rx_mkv) = mpsc::channel::<Event>(256);
+//     let mut th_mkv = spawn(run_makemkvcon(makemkvcon_bin, args, tx_mkv));
+
+//     let mut severity_map = create_severity_map();
+
+//     // Promote 'no drive' message to warning. It doesn't really make sense
+//     // to try to identify drives if there aren't any but it isn't an actual
+//     // error, e.g. could be waiting on a USB drive to be plugged in.
+//     //
+//     // MSG:5042 - The program can't find any usable optical drives.
+//     severity_map.insert(5042, MsgSeverity::Warning);
+
+//     let mut drives = Vec::<DrvRecord>::new();
+
+//     // create a timeout future that can be polled inside `select!`
+//     let timeout = sleep(Duration::from_secs(60));
+//     tokio::pin!(timeout);
+
+//     // parse incoming events until the spawned task finishes or we timeout
+//     loop {
+//         tokio::select! {
+//             // parse generated events
+//             // 'makemkvcon info disc:-1' generates MSG, DRV and TCOUNT records
+//             Some(event) = rx_mkv.recv() => {
+//                 match process_info_event(&event, &severity_map) {
+//                     Some(x) => {
+
+//                     },
+//                     None => {
+//                         warn!("Encountered unexpected event '{:#?}'", event);
+//                     }
+//                 }
+//             // tx.send(InfoEvent::MSG(message)).await.unwrap();
+//                 // match &drv.drive_status {
+//                 //     Some(DrvStatus::NoDrive) => {
+//                 //         // do nothing
+//                 //     },
+//                 //     Some(_) => {
+//                 //         drives.push(drv.clone());
+//                 //     },
+//                 //     None => {
+//                 //         warn!("Unable to parse drive record:");
+//                 //     }
+//                 // }
+//             },
+//             // the spawned task has finished on its own
+//             // (either successfully or with an internal error)
+//             res = &mut th_mkv => {
+//                 match res {
+//                     Ok(_) => {
+//                         break;
+//                     },
+//                     Err(e) => {
+//                         return Err(DrvError::ThreadError(e));
+//                     }
+//                 }
+//             },
+//             // timeout has expired while waiting for the spawned task to
+//             // finish
+//             _ = &mut timeout => {
+//                 debug!("Event collection timeout reached.");
+//                 // abort the spawned task and return timeout error
+//                 th_mkv.abort();
+//                 return Err(DrvError::TimeoutExpired);
+//             },
+//         }
+//     }
+
+//     // cleanup - drain any remaining events that may have been sent before
+//     // the task finished
+//     while let Some(event) = rx_mkv.recv().await {
+//         process_info_event(&event, &mut drives, &severity_map, &tx).await;
+//     }
+
+//     // we're done; the spawned task has been awaited/aborted
+//     Ok(drives)
+// }
+
+// ------------------------------------------------------------------------
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum MsgSeverity {
+    Error,
+    Warning,
+    Info,
+    Debug,
+    Noise,
+    Unknown,
+}
+
+// similar to MsgRecord but augmented with a severity level
+#[derive(Clone, Debug, PartialEq)]
+pub struct Message {
+    pub code: u32,
+    pub flags: u32,
+    pub count: u32,
+    pub message: String,
+    pub format: String,
+    pub params: Vec<String>,
+    pub severity: MsgSeverity,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Stage {
+    Idle,
+    DriveScan,
+    BackupDisc,
+    Unknown,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum BackupEvent {
+    Message(Message),
+    ProgressPercentage((u8, Stage, u32, f32)),
+}
+
+// on Linux we preface the command with 'sudo' to execute the 'makemkvcon'
+// command with elevated privileges, this increases the chance of LibreDrive
+// working properly
+#[allow(dead_code)]
+#[cfg(target_os = "linux")]
+fn create_backup_command(makemkvcon_bin: &Path, source_mkv: &str, target_mkv: &str, settings: GlobalSettings) -> (PathBuf, Vec::<String>) {
+    // TODO configure for 'sudo' (may require the user's password!)
+    // let program = PathBuf::from("sudo");
+    // let args = Vec::<String>::from([
+    //     String::from(makemkvcon_bin.to_string_lossy()),
+    //     String::from("--robot"),
+
+    // run without 'sudo'
+    let program = makemkvcon_bin.to_owned();
+    let args = Vec::<String>::from([
+        String::from("--robot"),
+
+        // disable drive scanning when using 'makemkvcon backup'
+        // (we must have all the information it would provide before
+        // starting the backup and thus the only thing it achieves is to
+        // slow the operation, especially if there are multiple optical
+        // drives)
+        String::from("--noscan"),
+
+        // output all status messages to a file (default: stdout)
+        match settings.messages {
+            OutputType::StdOut => String::from("--messages=-stdout"),
+            OutputType::StdErr => String::from("--messages=-stderr"),
+            OutputType::Silent => String::from("--messages=-none"),
+            OutputType::File(filename) => format!("--messages={}", filename.to_string_lossy()),
+        },
+
+        // output all progress messages to a file (default: null)
+        match settings.progress {
+            OutputType::StdOut => String::from("--progress=-stdout"),
+            OutputType::StdErr => String::from("--progress=-stderr"),
+            OutputType::Silent => String::from("--progress=-none"),
+            OutputType::File(filename) => format!("--progress={}", filename.to_string_lossy()),
+        },
+
+        // enable debug messages
+        // !! makemkvcon's implementation is bugged and always uses
+        // !! ./MakeMKV_log.txt, ignoring the user-provided filename
+        // String::from("--debug[=FILE]"), 
+
+        // enables or disable direct disc access. 
+        match settings.directio {
+            DirectIO::Enabled => String::from("--directio=true"),
+            DirectIO::Disabled => String::from("--directio=false"),
+        },
+
+        String::from("backup"),
+        source_mkv.to_owned(),
+        target_mkv.to_owned(),
+    ]);
+
+    (program, args)
+}
+
+#[allow(dead_code)]
+#[cfg(target_os = "windows")]
+fn create_backup_command(makemkvcon_bin: &Path, source_mkv: &str, target_mkv: &str) -> (PathBuf, Vec::<String>) {
+    let program = makemkvcon_bin;
+    let args = Vec::from([
+        String::from("--robot"),
+        String::from("backup"),
+        source_mkv,
+        target_mkv,
+    ]);
+
+    (program, args)
+}
+
+pub enum BackupError {
+    DataError,
+    ThreadError(JoinError),
+}
+
+struct BackupState {
+    result: bool,
+    pcr_code: u32,
+    cur_stage: Stage,
+}
+
+#[derive(Debug)]
+pub enum MkvError {
+    ThreadError(JoinError),
+}
+pub struct MakeMkv {
+    pub binary: PathBuf,
+
+    pub enable_robot: bool,
+    pub disable_scan: bool,
+    pub debug: bool,
+    pub directio: DirectIO,
+    pub messages: OutputType,
+    pub progress: OutputType, 
+    pub min_length: usize,
+}
+
+impl MakeMkv {
+
+    pub fn defaults(binary: PathBuf) -> Self {
+        MakeMkv {
+            binary,
+            enable_robot: false,
+            disable_scan: false,
+            debug: false,
+            directio: DirectIO::Enabled,
+            messages: OutputType::Silent,
+            progress: OutputType::Silent, 
+            min_length: 120,
+        }
+    }
+
+    // --------------------------------------------------------------------
+    // generic command runner
+    // --------------------------------------------------------------------
+
+    pub async fn run(&self, mut args: Vec<String>, tx: Sender<MakeMkvEvent>) -> Result<DiscContent, MakeMkvError> {
+        let mut args_mkv = Vec::new();
+
+        // configure machine-readable output (CSV-like)
+        //
+        // This setting should be considered mandatory since without it
+        // message codes unavailable and there's no way to identify a
+        // message's severity without parsing the provided string.
+        if self.enable_robot {
+            args_mkv.push("--robot".to_string());
+        }
+
+        // configure visibility of status messages
+        match &self.messages {
+            OutputType::StdOut => {
+                // nothing to do, it's the default
+                // equivalent to '--messages=-stdout'
+            },
+            OutputType::StdErr => {
+                args_mkv.push("--messages=-stderr".to_string());
+            },
+            OutputType::Silent => {
+                args_mkv.push("--messages=-none".to_string());
+            },
+            OutputType::File(filename) => {
+                args_mkv.push(format!("--messages={}", filename.to_string_lossy()));
+            },
+        };
+
+        // configure visibility of progress messages
+        match &self.progress {
+            OutputType::StdOut => {
+                args_mkv.push("--progress=-stdout".to_string());
+            },
+            OutputType::StdErr => {
+                args_mkv.push("--progress=-stderr".to_string());
+            },
+            OutputType::Silent => {
+                // nothing to do, it's the default
+                // equivalent to '--progress=-none'
+            },
+            OutputType::File(filename) => {
+                args_mkv.push(format!("--progress={}", filename.to_string_lossy()));
+            },
+        }
+
+        // configure visibility of debug messages
+        //
+        // !! makemkvcon's implementation is bugged and always uses
+        // !! ./MakeMKV_log.txt, ignoring the user-provided filename
+        // !! -> Using "--debug[=FILE]" does NOT work.
+        if self.debug {
+            args_mkv.push("--debug".to_string());
+        }
+
+        // configure direct disc access
+        match self.directio {
+            DirectIO::Enabled => {
+                // nothing to do, it's the default
+                // equivalent to '--directio=true'
+            },
+            DirectIO::Disabled => {
+                args_mkv.push("--directio=false".to_string());
+            },
+        }
+
+        // configure minimum title length
+        // (default value: 120 seconds)
+        args_mkv.push(format!("--minlength={}", self.min_length));
+
+        // ...and finally append the provided arguments
+        args_mkv.append(&mut args);
+
+        run_makemkvcon(self.binary.clone(), args_mkv, tx).await
+    }
+
+    // --------------------------------------------------------------------
+    // as documented by `makemkvcon --help`
+    // --------------------------------------------------------------------
+
+    /// backs up disc to a hard drive
+    ///
+    /// calls `makemkvcon backup <source> <destination folder>`
+    pub async fn backup(&self, source: String, target: PathBuf, tx: Sender<MakeMkvEvent>) -> Result<(), BackupError> {
+
+        // e.g. `makemkvcon64.exe backup drv:0 filename.iso`
+        let args = Vec::from([
+            "backup".to_string(),
+            source.to_string(),
+            target.to_string_lossy().to_string(),
+        ]);
+
+        match self.run(args, tx).await {
+            Ok(_) => Ok(()),
+            Err(MakeMkvError::DataError(_)) => Err(BackupError::DataError),
+        }
+    }
+
+    /// prints info about disc
+    ///
+    /// calls `makemkvcon info <source>`
+    pub async fn info(&self, source: String, tx: Sender<MakeMkvEvent>) -> Result<(), InfoError> {
+
+        // e.g. `makemkvcon64.exe info drv:0`
+        let command = [
+            &self.binary.to_string_lossy(),
+            // "--debug",
+            "--robot",
+            "info",
+            &source,
+        ];
+        println!("Executing command '{}'", command.join(" "));
+
+        Ok(())
+    }
+
+    /// saves a single title to mkv file
+    ///
+    /// calls `makemkvcon mkv <source> <title id> <destination folder>`
+    pub async fn mkv(&self, source: String, title: usize, target: PathBuf, tx: Sender<MakeMkvEvent>) -> Result<(), MkvError> {
+
+        // e.g. `makemkvcon64.exe mkv drv:0 1 title_1.mkv`
+        let command = [
+            &self.binary.to_string_lossy(),
+            // "--debug",
+            "--robot",
+            "mkv",
+            &source,
+            &title.to_string(),
+            &target.to_string_lossy(),
+        ];
+        println!("Executing command '{}'", command.join(" "));
+
+        Ok(())
+    }
+
+    /// run universal firmware tool
+    /// 
+    /// calls `makemkvcon f <args>`
+    pub async fn f(&self, drive: String, filename: std::path::PathBuf, tx: Sender<MakeMkvEvent>) -> Result<(), FirmwareError> {
+
+        // e.g. `makemkvcon64.exe f --all-yes -d E: rawflash -i Downgrade-Enabled-Firmware\Auto-Flash\LG-Desktop-NS60-sleep-fix\WH16NS60-1.02-MK.bin`
+        let command = [
+            &self.binary.to_string_lossy(),
+            // "--debug",
+            "--robot",
+            "f",
+            "--all-yes",
+            "-d",
+            &drive,
+            "rawflash",
+            "-i",
+            &filename.to_string_lossy(),
+        ];
+        println!("Executing command '{}'", command.join(" "));
+
+        Ok(())
+    }
+    
+    /// enter registration key into program
+    /// (beta key is published at https://forum.makemkv.com/forum/viewtopic.php?f=5&t=1053)
+    ///
+    /// calls `makemkvcon reg <key string or file name>`
+    pub async fn reg(&self, license_key: String, tx: Sender<MakeMkvEvent>) -> Result<(), LicenseError> {
+
+        // e.g. `makemkvcon64.exe reg T-Wa...9e`
+        let command = [
+            &self.binary.to_string_lossy(),
+            // "--debug",
+            "--robot",
+            "reg",
+            &license_key,
+        ];
+        println!("Executing command '{}'", command.join(" "));
+
+        Ok(())
+    }
+
+}
+
+// pub async fn backup(makemkv: MakeMkv, disc_id: u8, target: PathBuf, tx: Sender<BackupEvent>) -> Result<bool, BackupError> {
+//     // 'makemkvcon backup <...>' requires the source to be provided as
+//     // 'disc:#', using 'dev:<DeviceName>' is not supported
+//     // TODO automatically map 'Source' to 'Source::DiscId' using get_drives() with '--no-scan'
+
+//     let source = Source::DiscId(disc_id);
+//     let settings = runner::GlobalSettings {
+//         debug: true,
+//         disable_scan: true,
+//         min_length: 0,
+//         directio: DirectIO::Enabled,
+//         messages: OutputType::StdOut,
+//         progress: OutputType::StdOut,
+//     };
+
+//     let (program, args) = create_backup_command(&makemkv.binary, &source.to_string(), &target.to_string_lossy(), settings);
+
+//     // see 'docs/makemkv-output.md' for examples of makemkvcon's output
+//     let (tx_mkv, mut rx_mkv) = mpsc::channel::<MakeMkvEvent>(256);
+//     let mut th_mkv = spawn(run_makemkvcon(program, args, tx_mkv));
+
+//     // progress updates (1st stage: DriveScan):
+//     // ----------------------------------------------------
+//     // PRGT:5018,0,"Scanning CD-ROM devices"
+//     // PRGC:5018,0,"Scanning CD-ROM devices"
+//     // PRGV:0,0,65536
+//     // <...>
+//     // PRGV:65536,65536,65536
+//     // <...>
+//     // PRGV:0,65536,65536
+//     // PRGV:0,0,65536
+//     // ----------------------------------------------------
+
+//     // progress updates (2nd stage: BackupDisc):
+//     // ----------------------------------------------------
+//     // PRGT:5047,0,"Copying all files"
+//     // PRGC:3102,0,"Processing title sets"
+//     // PRGV:0,0,65536
+//     // <...>
+//     // PRGV:65535,65534,65536
+//     // ----------------------------------------------------
+
+//     let mut severity_map = create_severity_map();
+
+//     // `makemkvcon backup` emits 2 "Backup failed/done" messages with
+//     // same meaning but different message codes
+//     // -> hide the messages without a full-stop (MSG:5069 & MSG:5070)
+//     // -- failure --
+//     // MSG:5069 - Backup failed
+//     // MSG:5080 - Backup failed.
+//     // -- success --
+//     // MSG:5070 - Backup done
+//     // MSG:5081 - Backup done.
+//     severity_map.insert(5069, MsgSeverity::Noise); // duplicates MSG:5080
+//     severity_map.insert(5070, MsgSeverity::Noise); // duplicates MSG:5081
+
+//     // Promote 'no drive' message to error.
+//     // (`makemkvcon backup` requires an optical drive)
+//     //
+//     // MSG:5042 - The program can't find any usable optical drives.
+//     severity_map.insert(5042, MsgSeverity::Error);
+
+//     let mut backup_state = BackupState {
+//         cur_stage: Stage::Idle,
+//         pcr_code: 0,
+//         result: false, // assume failure until we saw MSG:5081
+//     };
+
+//     // parse incoming events until the spawned task finishes
+//     loop {
+//         tokio::select! {
+//             Some(event) = rx_mkv.recv() => {
+//                 process_backup_event(&event, disc_id, &mut backup_state, &severity_map, &tx).await;
+//             },
+//             res = &mut th_mkv => {
+//                 match res {
+//                     Ok(_) => {
+//                         break;
+//                     },
+//                     Err(e) => {
+//                         return Err(BackupError::ThreadError(e));
+//                     }
+//                 }
+//             },
+//         }
+//     }
+
+//     debug!("backup(): run_makemkvcon has finished.");
+
+//     // cleanup - drain any remaining events that may have been sent before
+//     // the task finished
+//     while let Some(event) = rx_mkv.recv().await {
+//         process_backup_event(&event, disc_id, &mut backup_state, &severity_map, &tx).await;
+//     }
+
+//     // we're done; the spawned task has been awaited/aborted
+//     match th_mkv.await {
+//         Ok(_) => {
+//             Ok(backup_state.result)
+//         }
+//         Err(e) => {
+//             Err(BackupError::ThreadError(e))
+//         }
+//     }
+// }
+
+
+// ------------------------------------------------------------------------
+
+pub enum InfoError {
+    NotImplemented,
+    ThreadError(JoinError),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum InfoEvent {
+    MSG(Message),
+    DRV(DrvRecord),
+    ProgressPercentage((u8, Stage, u32, f32)),
+}
+
+// pub async fn info(makemkvcon_bin: PathBuf, source: Source, settings: GlobalSettings, tx: Sender<InfoEvent>) -> Result<(), InfoError> {
+//     debug!("info({}, {:#?}, {:#?}, tx)", makemkvcon_bin.to_string_lossy(), source, settings);
+//     debug!("Processing '{}'.", source);
+
+//     let (program, args) = create_info_command(&makemkvcon_bin, &settings, &source);
+//     debug!("{} {}", program.to_string_lossy(), args.join(" "));
+
+//     // see 'docs/makemkv-output.md' for examples of makemkvcon's output
+//     let (tx_info, mut rx_info) = mpsc::channel::<MakeMkvEvent>(256);
+//     let mut th_info = spawn(run_makemkvcon(program, args, tx_info));
+
+//     let mut severity_map = create_severity_map();
+
+//     // Promote 'no drive' message to error when using an optical drive.
+//     // Otherwise silence them since they are irrelevant.
+//     //
+//     // MSG:5042 - The program can't find any usable optical drives.
+//     match source {
+//         Source::DeviceName(_) | Source::DiscId(_) | Source::DriveLetter(_) => {
+//             severity_map.insert(5042, MsgSeverity::Error);
+//         },
+//         Source::Directory(_) | Source::IsoFile(_) => {
+//             severity_map.insert(5042, MsgSeverity::Debug);
+//         }
+//     }
+
+//     // parse incoming events until the spawned task finishes
+//     loop {
+//         tokio::select! {
+//             Some(event) = rx_info.recv() => {
+//                 process_info_event(&event, &source, &severity_map, &tx).await;
+//             },
+//             res = &mut th_info => {
+//                 match res {
+//                     Ok(_) => {
+//                         break;
+//                     },
+//                     Err(e) => {
+//                         return Err(InfoError::ThreadError(e));
+//                     }
+//                 }
+//             },
+//         }
+//     }
+
+//     debug!("info(): run_makemkvcon has finished.");
+
+//     // cleanup - drain any remaining events that may have been sent before
+//     // the task finished
+//     if !rx_info.is_empty() {
+//         debug!("info(): Draining remaining messages.");
+//         while let Some(event) = rx_info.recv().await {
+//             process_info_event(&event, &source, &severity_map, &tx).await;
+//         }
+//     } else {
+//         debug!("info(): Nothing to drain, channel is empty.");
+//     }
+
+//     debug!("info(): Closing transmit channel.");
+//     drop(tx);
+
+//     debug!("info(): Returning to caller.");
+//     Ok(())
+// }
+
+// ------------------------------------------------------------------------
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum MkvEvent {
+    MSG(Message),
+    DRV(DrvRecord),
+    ProgressPercentage((u8, Stage, u32, f32)),
+}
+
+// pub async fn mkv(
+//     makemkvcon_bin: &Path,
+//     source: &str,
+//     title: usize,
+//     target: &Path,
+//     min_length: usize,
+// ) -> bool {
+//     let source_mkv = match parse_source(source) {
+//         Some(x) => x,
+//         None => {
+//             error!(
+//                 "Usage error: Source must be a disc id, drive letter, device name, iso file, or directory!"
+//             );
+//             return false;
+//         }
+//     };
+//     let target_mkv = target.to_string_lossy().to_string();
+
+//     if !target.exists() {
+//         match std::fs::create_dir_all(target) {
+//             Ok(_) => {
+//                 debug!("Successfully created directory '{}'.", target_mkv)
+//             }
+//             Err(e) => {
+//                 error!("Failed to create directory '{}': {}", target_mkv, e);
+//                 return false;
+//             }
+//         }
+//     }
+
+//     let (tx_mkv, mut rx_mkv) = mpsc::channel::<String>(256);
+//     let th_mkv = spawn(run_program(makemkvcon_bin.to_path_buf(), Vec::from(["--robot".to_string(), "mkv".to_string(), source_mkv.to_string(), title.to_string(), target_mkv]), tx_mkv));
+
+//     // MSG:1005 - MakeMKV v1.18.3 win(x64-release) started
+//     // MSG:5075 The new version 1.18.3 is available for download at http://www.makemkv.com/download/
+//     // MSG:3324 Processing BD+ code using generic SVQ from builtin/generic.svq
+//     // MSG:3328 BD+ code processed, got 1 FUT(s) for 20 clip(s)
+//     // MSG:3338 Downloading latest SDF to <homedir>/.MakeMKV ...
+//     // MSG:3007 - Using direct disc access mode
+//     // MSG:3028 - Title #2 was added (7 cell(s), 0:06:07)
+//     // MSG:3025 - Title #3 has length of 20 seconds which is less than minimum title length of 120 seconds and was therefore skipped
+//     // MSG:3038 - Cells 3-7 were removed from title end
+//     // MSG:3006 Opening files on harddrive at file://<...>
+//     // MSG:3307 File 00006.mpls was added as title #0
+//     // MSG:3308 File 00800.mpls (angle 1) was added as title #8
+//     // MSG:3309 Title 00021.mpls(1) is equal to title 00006.mpls and was skipped
+//     // MSG:3041 Failed to add angle #2 for title #850
+//     // MSG:3026 Title #11 declared length is 0:00:00 while its real length is 0:00:16 - assuming fake title
+//     // MSG:3344 Using Java runtime from /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+//     // MSG:5014 - Saving 1 titles into directory file://<...>
+//     // MSG:5085 Loaded content hash table, will verify integrity of M2TS files.
+//     // <...>
+//     // -- success --
+//     // MSG:5005 - 1 titles saved
+//     // MSG:5011 - Operation successfully completed
+//     // MSG:5036 - Copy complete. 1 titles saved.
+//     // -- conflict --
+//     // MSG:5001 File ./B1_t00.mkv already exist. Do you want to overwrite it?
+//     // MSG:5005 1 titles saved
+//     // -- failure --
+//     // MSG:2019 - Error 'OS error - The system cannot find the path specified' occurred while creating '<...>/B1_t00.mkv'
+//     // MSG:5003 - Failed to save title 0 to file <...>/B1_t00.mkv
+//     // MSG:5004 - 0 titles saved, 1 failed
+//     // MSG:5037 - Copy complete. 0 titles saved, 1 failed.
+
+//     let mut severity_map = HashMap::from([
+//         (1005, parser::SeverityLevel::Debug),
+//         (2019, parser::SeverityLevel::Error),
+//         (3006, parser::SeverityLevel::Info),
+//         (3007, parser::SeverityLevel::Debug),
+//         (3025, parser::SeverityLevel::Debug),
+//         (3026, parser::SeverityLevel::Info),
+//         (3028, parser::SeverityLevel::Debug),
+//         (3038, parser::SeverityLevel::Debug),
+//         (3041, parser::SeverityLevel::Warning),
+//         (3307, parser::SeverityLevel::Debug),
+//         (3308, parser::SeverityLevel::Debug),
+//         (3309, parser::SeverityLevel::Debug),
+//         (3324, parser::SeverityLevel::Debug),
+//         (3328, parser::SeverityLevel::Debug),
+//         (3338, parser::SeverityLevel::Info),
+//         (3344, parser::SeverityLevel::Debug),
+//         (5001, parser::SeverityLevel::Warning),
+//         (5003, parser::SeverityLevel::Error),
+//         (5004, parser::SeverityLevel::Error),
+//         (5005, parser::SeverityLevel::Debug),
+//         (5011, parser::SeverityLevel::Debug),
+//         (5014, parser::SeverityLevel::Debug),
+//         (5036, parser::SeverityLevel::Debug),
+//         (5037, parser::SeverityLevel::Error),
+//         (5075, parser::SeverityLevel::Warning),
+//         (5085, parser::SeverityLevel::Debug),
+//     ]);
+
+//     // MSG:2008 Program reads data faster than it can write to disk, consider upgrading your hard drive if you see many of these messages.
+//     match &source_mkv {
+//         Source::IsoFile(_) | Source::Directory(_) => {
+//             // not reading from an optical drive; silence this message
+//             severity_map.insert(2008, parser::SeverityLevel::Debug);
+//         }
+//         Source::DiscId(_) | Source::DeviceName(_) | Source::DriveLetter(_) => {
+//             // reading from an optical drive; promote to warning
+//             severity_map.insert(2008, parser::SeverityLevel::Warning);
+//         }
+//     }
+
+//     // silence messages related to optical drives when using the
+//     // filesystem as a source, promote to error when using a drive
+//     match source_mkv {
+//         // MSG:5042 - The program can't find any usable optical drives.
+//         Source::Directory(_) | Source::IsoFile(_) => {
+//             severity_map.insert(5042, parser::SeverityLevel::Debug);
+//         }
+//         Source::DiscId(_) | Source::DriveLetter(_) | Source::DeviceName(_) => {
+//             severity_map.insert(5042, parser::SeverityLevel::Error);
+//         }
+//     };
+
+//     let mut result = true;
+//     while !th_mkv.is_finished() {
+//         while let Some(line) = rx_mkv.recv().await {
+//             let parsed = parse_output_line(line.as_bytes());
+//             match parsed {
+//                 ParsedOutputLine::DRV(_) => {
+//                     // skip
+//                 }
+//                 // TODO implement message processing
+//                 _ => {
+//                     warn!("Found an unexpected record during backup:");
+//                     warn!("{}", line);
+//                 }
+//             }
+//         }
+//         // let parsed_output = parser::process_output(reader, min_length, &severity_map);
+//         // if parsed_output.errors > 0 {
+//         //     result = false;
+//         // }
+//     }
+
+//     let _ = th_mkv.await;
+
+//     result
+// }
+
+// ------------------------------------------------------------------------
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum FirmwareEvent {
+    MSG(Message),
+    DRV(DrvRecord),
+    ProgressPercentage((u8, Stage, u32, f32)),
+}
+
+pub enum FirmwareError {
+    ThreadError(JoinError),
+}
+// TODO makemkvcon f
+
+// ------------------------------------------------------------------------
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum LicenseEvent {
+    MSG(Message),
+    DRV(DrvRecord),
+    ProgressPercentage((u8, Stage, u32, f32)),
+}
+
+pub enum LicenseError {
+    ThreadError(JoinError),
+}
+
+// ------------------------------------------------------------------------
+// private helper functions
+// ------------------------------------------------------------------------
+
+fn create_info_command(makemkvcon_bin: &Path, settings: &GlobalSettings, source: &Source) -> (PathBuf, Vec::<String>) {
+    let program = makemkvcon_bin.to_owned();
+    let args = Vec::<String>::from([
+        String::from("--robot"),
+
+        // disable scanning disc content
+        if settings.disable_scan {
+            String::from("--noscan")
+        } else {
+            String::from("")
+        },
+
+        // output all status messages to a file (default: stdout)
+        match &settings.messages {
+            OutputType::StdOut => String::from("--messages=-stdout"),
+            OutputType::StdErr => String::from("--messages=-stderr"),
+            OutputType::Silent => String::from("--messages=-none"),
+            OutputType::File(filename) => format!("--messages={}", filename.to_string_lossy()),
+        },
+
+        // output all progress messages to a file (default: null)
+        match &settings.progress {
+            OutputType::StdOut => String::from("--progress=-stdout"),
+            OutputType::StdErr => String::from("--progress=-stderr"),
+            OutputType::Silent => String::from("--progress=-none"),
+            OutputType::File(filename) => format!("--progress={}", filename.to_string_lossy()),
+        },
+
+        // enable debug messages
+        if settings.debug {
+            // !! makemkvcon's implementation is bugged and always uses
+            // !! ./MakeMKV_log.txt, ignoring the user-provided filename
+            // !! -> "--debug[=FILE]" does not work
+            String::from("--debug")
+        } else {
+            String::from("")
+        },
+
+        // enables or disable direct disc access. 
+        match settings.directio {
+            DirectIO::Enabled => String::from("--directio=true"),
+            DirectIO::Disabled => String::from("--directio=false"),
+        },
+
+        format!("--minlength={}", settings.min_length),
+
+        String::from("info"),
+        source.to_string(),
+    ]).into_iter().filter(|arg| !arg.is_empty()).collect();
+
+    (program, args)
+}
+
+fn convert_msg_record(msg: &MsgRecord, severity_map: &HashMap<u32, MsgSeverity>) -> Message {
+    let severity = severity_map.get(&msg.code).unwrap_or(&MsgSeverity::Unknown);
+
+    // TODO implement special handling for MSG:2003 since this could be a usage issue or disc error
+    // make sure to use LibreDrive:
+    // MSG:2003 - Error 'Scsi error - ILLEGAL REQUEST:READ OF SCRAMBLED SECTOR WITHOUT AUTHENTICATION' occurred while reading '<device>' at offset '1048576'
+    // check disc for damage / dirt:
+    // MSG:2003 - Error 'Scsi error - MEDIUM ERROR:L-EC UNCORRECTABLE ERROR' occurred while reading '<device>' at offset '5326917632'
+
+    Message {
+        code: msg.code,
+        flags: msg.flags,
+        count: msg.count,
+        message: msg.message.clone(),
+        format: msg.format.clone(),
+        params: msg.params.clone(),
+        severity: severity.clone(),
+    }
+}
+
+fn create_severity_map() -> HashMap::<u32, MsgSeverity> {
+    /*
+        Create a HashMap for mapping message codes to severity levels.
+        (see 'docs/makemkv-output.md' for examples of makemkvcon's output)
+
+        Severities are context-dependent, e.g. 2008 (HDD too slow) and 5042 (no
+        optical drive) are irrelevant when reading from a disc image but must
+        be treated as an error when reading from an optical drive.
+    */
+    HashMap::from([
+        (1003, MsgSeverity::Debug),   //
+        (1004, MsgSeverity::Debug),   // 
+        (1005, MsgSeverity::Info),    // MakeMkv started
+        (1011, MsgSeverity::Info),    //
+        (2003, MsgSeverity::Error),   // read error
+        (2008, MsgSeverity::Warning), // storage slower than drive
+        (2019, MsgSeverity::Error),   // file or directory not found
+        (2024, MsgSeverity::Error),   // 
+        (3006, MsgSeverity::Info),    // opening files on harddrive
+        (3007, MsgSeverity::Info),    // using direct disc access mode
+        (3025, MsgSeverity::Info),    // title is shorter than min-length
+        (3026, MsgSeverity::Info),    // assuming fake title
+        (3027, MsgSeverity::Info),    //
+        (3028, MsgSeverity::Info),    // title was added
+        (3038, MsgSeverity::Info),    // cells removed from title end
+        (3041, MsgSeverity::Warning), // failed to add angle
+        (3306, MsgSeverity::Info),    //
+        (3307, MsgSeverity::Info),    // added file
+        (3308, MsgSeverity::Info),    // added file (with angle)
+        (3309, MsgSeverity::Info),    // duplicate title skipped
+        (3324, MsgSeverity::Info),    // processing BD+ code
+        (3326, MsgSeverity::Info),    //
+        (3328, MsgSeverity::Info),    // processed BD+ code
+        (3338, MsgSeverity::Info),    // downloading latest SDF
+        (3344, MsgSeverity::Info),    // using Java runtime
+        (5001, MsgSeverity::Warning), // file already exists in filesystem
+        (5003, MsgSeverity::Error),   // failed to save title
+        (5004, MsgSeverity::Error),   // <num> titles saved, <num> failed
+        (5005, MsgSeverity::Error),   // <num> titles saved
+        (5010, MsgSeverity::Error),   //
+        (5011, MsgSeverity::Info),    // operation successfully completed
+        (5014, MsgSeverity::Info),    // saving title to filesystem
+        (5036, MsgSeverity::Info),    // Copy complete. <num> titles saved.
+        (5037, MsgSeverity::Warning), // Copy complete. <num> titles saved, <num> failed.
+        (5042, MsgSeverity::Info),    // no drives found
+        (5069, MsgSeverity::Noise),   // duplicates MSG:5080
+        (5070, MsgSeverity::Noise),   // duplicates MSG:5081
+        (5072, MsgSeverity::Info),    //
+        (5075, MsgSeverity::Info),    // new version available
+        (5080, MsgSeverity::Error),   // backup failed
+        (5081, MsgSeverity::Info),    // backup succeeded
+        (5085, MsgSeverity::Info),    // loaded content hash table
+    ])
+}
+
+// augment and/or convert the data provided by MakeMKV
+// fn process_makemkv_event(event: &MakeMkvEvent, severity_map: &HashMap<u32, MsgSeverity>) -> Event {
+//     match event {
+//         MakeMkvEvent::DRV(drv) => {
+//             Event::DRV(drv.clone())
+//         },
+//         MakeMkvEvent::MSG(msg) => {
+//             let message = convert_msg_record(msg, severity_map);
+//             Event::MSG(message)
+//         },
+//         MakeMkvEvent::TCOUNT(tcount) => {
+//             Event::TCOUNT(*tcount)
+//         },
+//         MakeMkvEvent::PRGT(x) => {
+//             Event::PRGT(x.clone())
+//         },
+//         MakeMkvEvent::PRGV(x) => {
+//             Event::PRGV(x.clone())
+//         },
+//         MakeMkvEvent::PRGC(x) => {
+//             Event::PRGC(x.clone())
+//         },
+//     }
+// }
+
+// TODO consider using a generic event handler instead
+async fn process_info_event(event: &MakeMkvEvent, source: &Source, severity_map: &HashMap<u32, MsgSeverity>, tx: &Sender<InfoEvent>) {
+    // 'makemkvcon backup' generates MSG, DRV and PRG* records
+    match event {
+        MakeMkvEvent::DRV(drv) => {
+            debug!("info(): [{}] DRV:{} device_name: {} status:{}", source, drv.index, drv.device_name, drv.drive_status_num);
+            tx.send(InfoEvent::DRV(drv.clone())).await.unwrap();
+        },
+        MakeMkvEvent::MSG(msg) => {
+            debug!("info(): [{}] MSG:{} - {}", source, msg.code, msg.message);
+            let message = convert_msg_record(msg, severity_map);
+            tx.send(InfoEvent::MSG(message)).await.unwrap();
+        },
+        MakeMkvEvent::TCOUNT(tc) => {
+            debug!("info(): [{}] TCOUNT {}", source, tc);
+        },
+        MakeMkvEvent::PRGT(prgt) => {
+            debug!("info(): [{}] PRGT code:{}, id:{}, name:{}", source, prgt.code, prgt.id, prgt.name)
+        },
+        MakeMkvEvent::PRGC(prgc) => {
+            debug!("info(): [{}] PRGC code:{}, id:{}, name:{}", source, prgc.code, prgc.id, prgc.name)
+        },
+        MakeMkvEvent::PRGV(prgv) => {
+            debug!("info(): [{}] PRGV current:{}, total:{}, maximum:{}", source, prgv.current, prgv.total, prgv.maximum)
+        },
+    }
+}
+
+// TODO consider using a generic event handler instead
+async fn process_backup_event(event: &MakeMkvEvent, disc_id: u8, backup_state: &mut BackupState, severity_map: &HashMap<u32, MsgSeverity>, tx: &Sender<BackupEvent>) {
+    // 'makemkvcon backup' generates MSG, DRV and PRG* records
+    match event {
+        MakeMkvEvent::DRV(_) => {
+            // Keep calm and do nothing.
+            // We use '--noscan' to avoid disturbing other drives.
+            // The generated 'DRV:' records provide no useful
+            // information apart from indicating the available
+            // optical drives in this computer (an information we
+            // no longer need to know).
+        },
+        MakeMkvEvent::MSG(msg) => {
+            let message = convert_msg_record(msg, severity_map);
+            // MSG:5080 - Backup failed.
+            // MSG:5081 - Backup done.
+            if msg.code == 5081 {
+                backup_state.result = true;
+            }
+            tx.send(BackupEvent::Message(message)).await.unwrap();
+        },
+        MakeMkvEvent::TCOUNT(_) => {
+            // This event is not supposed to happen during backup.
+            warn!("Encountered unexpected event 'TCOUNT' during backup operation. Ignoring.")
+        },
+        MakeMkvEvent::PRGC(prgc) => {
+            backup_state.pcr_code = prgc.code;
+        },
+        MakeMkvEvent::PRGT(prgt) => {
+            backup_state.cur_stage = match prgt.code {
+                5018 => Stage::DriveScan,
+                5047 => Stage::BackupDisc,
+                _ => {
+                    warn!("Encountered unknown stage '{}' (code: {})", prgt.name, prgt.code);
+                    Stage::Unknown
+                }
+            }
+        },
+        MakeMkvEvent::PRGV(prgv) => {
+            let percentage = if prgv.maximum > 0 {
+                prgv.current as f32 * 100.0 / prgv.maximum as f32
+            } else {
+                // prevent division by zero if prgv.maximum is 0
+                // (this should not happen, max is expected to be
+                // set to 65536)
+                0.0
+            };
+            let progress = (disc_id, backup_state.cur_stage.clone(), backup_state.pcr_code, percentage);
+            tx.send(BackupEvent::ProgressPercentage(progress)).await.unwrap()
+        },
+    }
+}

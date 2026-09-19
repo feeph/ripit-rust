@@ -11,14 +11,17 @@ members = [
 resolver = "3"
 
 [workspace.dependencies]
-async-stream = "0.3"
+async-trait = "0.1.92"
+atty = "0.2"
 chrono = "0.4.45"
 clap = "4.6"
 csv = "1.4"
+dialoguer = "0.12.0"
 enum_primitive = "0.1"
 env_logger = "0.11"
 exitcode = "1.1"
 futures = "0.3"
+indicatif = "0.17"
 itertools = "0.15"
 log = "0.4"
 makemkv = { path = "libs/makemkv" }

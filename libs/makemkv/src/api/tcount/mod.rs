@@ -7,7 +7,7 @@
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
 
-pub fn parse_title_count_data(data: &[u8]) -> usize {
+pub fn parse_tcount_data(data: &[u8]) -> usize {
     let s = std::str::from_utf8(data).unwrap();
     s.parse::<usize>().unwrap()
 }
@@ -21,7 +21,7 @@ mod tests {
     fn parse_title_count() {
         let data = b"12";
         // ----------------------------------------------------------------
-        let computed = parse_title_count_data(data);
+        let computed = parse_tcount_data(data);
         let expected = 12;
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);

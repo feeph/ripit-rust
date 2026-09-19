@@ -7,10 +7,13 @@ rust-version = { workspace = true }
 version = "0.1.0"
 
 [dependencies]
+atty = { workspace = true }
 clap = { features = ["derive", "env"], workspace = true }
+dialoguer = { workspace = true }
 env_logger = { workspace = true }
 exitcode = { workspace = true }
 futures.workspace = true
+indicatif = { workspace = true, features = ["rayon"] }
 itertools = { workspace = true }
 log = { workspace = true }
 makemkv = { workspace = true }
@@ -19,5 +22,5 @@ regex = { workspace = true }
 ripit = { workspace = true }
 serde = { features = ["derive", "std"], workspace = true }
 serde_yaml = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 which = { workspace = true }

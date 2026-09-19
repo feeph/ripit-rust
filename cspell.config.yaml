@@ -5,14 +5,19 @@ dictionaries: []
 words:
   - aacs
   - apdefs_h
+  - ASUS
   - bdsvm
   - blkid
   - bluray
   - CDROM
+  - Celeron
+  - chrono
   - CINFO
   - clippy
+  - cooldown
   - DATAERR
   - DEVNAME
+  - directio
   - exitcode
   - fileapi
   - filesize
@@ -20,17 +25,22 @@ words:
   - hddvd
   - HDMV
   - IOERR
+  - isofile
   - itertools
   - Jumanji
+  - logfile
   - makemkv
   - makemkvcon
   - minwindef
   - mpls
+  - noscan
   - OSERR
   - OSFILE
+  - OTAKU
   - PRGC
   - PRGT
   - PRGV
+  - rawflash
   - ripit
   - serde
   - SINFO
@@ -38,10 +48,13 @@ words:
   - TCOUNT
   - TINFO
   - VOBSUB
+  - WARGAMES
   - winapi
   - winbase
 ignoreWords:
   - 8SSDX0F17036L1CB5800MGJ
+  - AFDL222859WL
   - DH16AFSH
+  - KL1OBDB4635
   - PLDS
 import: []

@@ -41,7 +41,7 @@ pub struct CmdArgs {
     verbose: bool,
 }
 
-pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
+pub fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
     if args.verbose {
         println!("[verbose] scan {}", args.source);
     }

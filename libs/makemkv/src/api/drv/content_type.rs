@@ -17,10 +17,18 @@
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct ContentType {
+    /// DVD
     pub has_dvd_files: bool,
+    /// HD-DVD
     pub has_hddvd_files: bool,
+    /// Blu-ray Disc
+    /// <https://www.blu-ray.org.uk/bd>
     pub has_bluray_files: bool,
+    /// Advanced Access Content System
+    /// <https://www.blu-ray.org.uk/aacs>
     pub has_aacs_files: bool,
+    /// Blu-ray Disk Secure Virtual Machine (BD+)
+    /// <https://www.blu-ray.org.uk/BDplus>
     pub has_bdsvm_files: bool,
 }
 

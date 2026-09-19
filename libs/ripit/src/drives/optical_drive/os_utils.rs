@@ -10,8 +10,55 @@
     (hopefully unique) value, e.g. "DVDVolume" becomes "DVDVolume_29615A81".
 */
 
+
+// standard library imports
+use std::path::PathBuf;
+
+// third-party imports
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
+
+// crate-provided imports
+// <none>
+
+// ------------------------------------------------------------------------
+// public interface
+// ------------------------------------------------------------------------
+
+/// provide an Operating System-agnostic way to determine a unique disc id
+/// 
+/// This function does not read the disc's metadata and does not rely on
+/// the volume label that is set during the mastering process. The reason
+/// we need a metadata-independent, unique id is because it is possible
+/// that the disc label is something like "DVDVolume", "LOGICAL_VOLUME_ID"
+/// or some other non-descriptive, non-unique value. If multiple discs with
+/// the same volume label would be extracted to the same directory they
+/// would cause filename conflicts and overwrite each other.
+///
+/// Please be aware that even though the function is OS-agnostic, the
+/// resulting volume id is not! The value is provided by the OS and the
+/// different OS's use different algorithms to compute the value.
+///
+/// - on Linux: uses `blkid`
+/// - on MacOS: not implemented
+/// - on Windows: uses `GetVolumeInformationW()`
+pub fn get_volume_id(path: &PathBuf) -> Option<String> {
+    #[cfg(target_os = "linux")]
+    if let Some(block_id) = get_blkid(path) {
+        return Some(block_id.uuid);
+    }
+
+    #[cfg(target_os = "windows")]
+    if let Some(volume_info) = get_volume_info(path) {
+        return Some(volume_info.volume_serial);
+    }
+
+    // ToDo implement for MacOS
+    // #[cfg(target_os = "macos")]
+    // ...
+
+    None
+}
 
 #[allow(dead_code)]
 #[cfg(target_os = "windows")]
@@ -32,7 +79,7 @@ pub struct VolumeInfo {
 // File System Name: UDF
 // ------------------------------------------------------------------------
 #[cfg(target_os = "windows")]
-pub fn get_volume_info(path: &str) -> Option<VolumeInfo> {
+pub fn get_volume_info(path: &PathBuf) -> Option<VolumeInfo> {
     use winapi::shared::minwindef::BOOL;
     use winapi::um::fileapi::GetVolumeInformationW;
 
@@ -42,7 +89,8 @@ pub fn get_volume_info(path: &str) -> Option<VolumeInfo> {
     let mut max_component_length: u32 = 0;
     let mut flags: u32 = 0;
 
-    let path_wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+    let path_str = path.to_string_lossy();
+    let path_wide: Vec<u16> = path_str.encode_utf16().chain(std::iter::once(0)).collect();
 
     let result: BOOL = unsafe {
         GetVolumeInformationW(
@@ -102,11 +150,12 @@ pub struct BlockId {
 // TYPE=udf
 // ------------------------------------------------------------------------
 #[cfg(target_os = "linux")]
-pub fn get_blkid(path: &str) -> Option<BlockId> {
+pub fn get_blkid(path: &PathBuf) -> Option<BlockId> {
     use std::process::Command;
 
+    let path_str = &path.to_string_lossy().to_string();
     let output = Command::new("blkid")
-        .args(["--output=export", path])
+        .args(["--output=export", path_str])
         .output()
         .ok()?;
 
@@ -146,22 +195,4 @@ pub fn get_blkid(path: &str) -> Option<BlockId> {
         block_size: block_size?,
         fs_type: fs_type?,
     })
-}
-
-pub fn get_volume_id(path: &str) -> Option<String> {
-    #[cfg(target_os = "linux")]
-    if let Some(block_id) = get_blkid(path) {
-        return Some(block_id.uuid);
-    }
-
-    #[cfg(target_os = "windows")]
-    if let Some(volume_info) = get_volume_info(path) {
-        return Some(volume_info.volume_serial);
-    }
-
-    // ToDo implement for MacOS
-    // #[cfg(target_os = "macos")]
-    // ...
-
-    None
 }

@@ -14,7 +14,7 @@ fn is_device_name(source: &str) -> bool {
 }
 
 #[cfg(target_os = "linux")]
-fn eject_medium_linux(source: &std::path::Path) {
+fn eject_disc_linux(source: &std::path::Path) {
     let source_str = source.to_string_lossy();
     // TODO consider testing for block device instead of '/dev/'
     if is_device_name(&source_str) {
@@ -27,7 +27,7 @@ fn eject_medium_linux(source: &std::path::Path) {
         match result {
             Ok(status) => {
                 if status.success() {
-                    info!("Ejected medium from '{}' using eject.", &source_str);
+                    info!("Ejected medium from '{}' using `eject`.", &source_str);
                 } else {
                     warn!("Linux eject command returned status {:?}.", status.code());
                 }
@@ -54,7 +54,7 @@ fn is_drive_letter(source: &str) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn eject_medium_windows(source: &std::path::Path) {
+fn eject_disc_windows(source: &std::path::Path) {
     let source_str = source.to_string_lossy();
     if is_drive_letter(&source_str) {
         let ps_command = format!(
@@ -90,15 +90,15 @@ fn eject_medium_windows(source: &std::path::Path) {
     };
 }
 
-pub fn eject_medium(source: &std::path::Path) {
+pub fn eject_disc(source: &std::path::Path) {
     #[cfg(target_os = "linux")]
     {
-        eject_medium_linux(source);
+        eject_disc_linux(source);
     }
 
     #[cfg(target_os = "windows")]
     {
-        eject_medium_windows(source);
+        eject_disc_windows(source);
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]

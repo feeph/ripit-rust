@@ -1,5 +1,12 @@
 /*
     source definition (as used by makemkvcon)
+
+can be any of:
+
+- 'iso:<FileName>' - disc image (ISO file)
+- 'file:<FolderName>' - filename or directory
+- 'disc:<DiscId>' - disc with id
+- 'dev:<DeviceName>' - device name or drive letter
 */
 
 use std::fmt;
@@ -12,26 +19,34 @@ use regex::Regex;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub enum Source {
-    DriveId(u8),
-    DriveLetter(String),
-    DeviceName(PathBuf),
+    DiscId(u8),
+    DriveLetter(String), // Windows
+    DeviceName(PathBuf), // Linux, MacOS
     IsoFile(PathBuf),
     Directory(PathBuf),
 }
 
+/// auto-detect the source's type using the user-provided value, e.g.:
+/// - '1' -> disc:1 (DiscId)
+/// - 'E:' -> dev:E: (DriveLetter)
+/// - 'image.iso' -> file://image.iso (IsoFile)
+///
+/// (returns 'none' if unable to determine the source type)
 pub fn parse_source(source: &str) -> Option<Source> {
-    let rx_drive_id = Regex::new(r"^(\d)$").unwrap();
-    let rx_drive_letter = Regex::new(r"^[A-Z]:\\?$").unwrap();
+    let rx_disc_id = Regex::new(r"^(\d|1[0-5])$").unwrap();
+    let rx_drive_letter = Regex::new(r"^([A-Za-z]:)\\?$").unwrap();
     let rx_device_name = Regex::new(r"^(/dev/.*)$").unwrap();
 
-    if rx_drive_id.is_match(source) {
+    if rx_disc_id.is_match(source) {
         // source is an optical drive id
-        Some(Source::DriveId(source.parse().unwrap()))
-    } else if rx_drive_letter.is_match(source) {
+        Some(Source::DiscId(source.parse().unwrap()))
+    } else if let Some(matched) = rx_drive_letter.captures(source) {
         // source is a drive letter (Windows)
-        Some(Source::DriveLetter(source.to_string()))
+        // -> extract the drive letter (without backslash)
+        let drive_letter = matched.get(1).unwrap().as_str().to_uppercase();
+        Some(Source::DriveLetter(drive_letter))
     } else if rx_device_name.is_match(source) {
-        // source is a device name (Linux)
+        // source is a device name (Linux or MacOS)
         Some(Source::DeviceName(source.into()))
     } else {
         let source_path = PathBuf::from(&source);
@@ -53,7 +68,7 @@ pub fn parse_source(source: &str) -> Option<Source> {
 impl fmt::Display for Source {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Source::DriveId(id) => write!(f, "disc:{}", id),
+            Source::DiscId(id) => write!(f, "disc:{}", id),
             Source::DriveLetter(letter) => write!(f, "dev:{}", letter),
             Source::DeviceName(path) => write!(f, "dev:{}", path.to_string_lossy()),
             Source::IsoFile(path) => write!(f, "iso:{}", path.to_string_lossy()),
@@ -68,16 +83,16 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn test_format_drive_id() {
+    fn test_format_disc_id() {
         // ----------------------------------------------------------------
-        let computed = Source::DriveId(0).to_string();
+        let computed = Source::DiscId(0).to_string();
         let expected = "disc:0".to_string();
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
 
     #[test]
-    fn test_format_drive_letter1() {
+    fn test_format_drive_letter_1() {
         // ----------------------------------------------------------------
         let computed = Source::DriveLetter("E:".to_string()).to_string();
         let expected = "dev:E:".to_string();
@@ -86,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_drive_letter2() {
+    fn test_format_drive_letter_2() {
         // ----------------------------------------------------------------
         let computed = Source::DriveLetter(r"E:\".to_string()).to_string();
         let expected = r"dev:E:\".to_string();
@@ -122,19 +137,65 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_source_as_disc() {
+    fn test_parse_source_as_disc_1() {
         // ----------------------------------------------------------------
-        let computed = parse_source("1").unwrap();
-        let expected = Source::DriveId(1);
+        let computed = parse_source("0").unwrap();
+        let expected = Source::DiscId(0);
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
 
     #[test]
-    fn test_parse_source_as_drive_letter() {
+    fn test_parse_source_as_disc_2() {
         // ----------------------------------------------------------------
-        let computed = parse_source("E:").unwrap();
-        let expected = Source::DriveLetter("E:".to_string());
+        let computed = parse_source("15").unwrap();
+        let expected = Source::DiscId(15);
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    // MakeMkv supports up to 15 discs
+    #[test]
+    fn test_parse_source_as_disc_oor() {
+        // ----------------------------------------------------------------
+        let computed = parse_source("16");
+        let expected = None;
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_parse_source_as_drive_letter_lc1() {
+        // ----------------------------------------------------------------
+        let computed = parse_source(r"a:").unwrap();
+        let expected = Source::DriveLetter("A:".to_string());
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_parse_source_as_drive_letter_lc2() {
+        // ----------------------------------------------------------------
+        let computed = parse_source(r"z:\").unwrap();
+        let expected = Source::DriveLetter("Z:".to_string());
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_parse_source_as_drive_letter_uc1() {
+        // ----------------------------------------------------------------
+        let computed = parse_source(r"A:").unwrap();
+        let expected = Source::DriveLetter("A:".to_string());
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_parse_source_as_drive_letter_uc2() {
+        // ----------------------------------------------------------------
+        let computed = parse_source(r"Z:\").unwrap();
+        let expected = Source::DriveLetter("Z:".to_string());
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
@@ -144,6 +205,24 @@ mod tests {
         // ----------------------------------------------------------------
         let computed = parse_source("/dev/sr1").unwrap();
         let expected = Source::DeviceName(PathBuf::from("/dev/sr1"));
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_parse_source_as_device_name_alias1() {
+        // ----------------------------------------------------------------
+        let computed = parse_source("/dev/cdrom").unwrap();
+        let expected = Source::DeviceName(PathBuf::from("/dev/cdrom"));
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_parse_source_as_device_name_alias2() {
+        // ----------------------------------------------------------------
+        let computed = parse_source("/dev/dvd").unwrap();
+        let expected = Source::DeviceName(PathBuf::from("/dev/dvd"));
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
@@ -169,9 +248,36 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_source_failure() {
+    fn test_fail_to_parse_empty_source() {
+        // ----------------------------------------------------------------
+        let computed = parse_source("");
+        let expected = None;
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_fail_to_parse_missing_file() {
         // ----------------------------------------------------------------
         let computed = parse_source("does_not_exist.iso");
+        let expected = None;
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_fail_to_parse_leading_whitespace() {
+        // ----------------------------------------------------------------
+        let computed = parse_source(" E:");
+        let expected = None;
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_fail_to_parse_trailing_whitespace() {
+        // ----------------------------------------------------------------
+        let computed = parse_source("E: ");
         let expected = None;
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);

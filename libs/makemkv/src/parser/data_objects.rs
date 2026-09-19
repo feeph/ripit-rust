@@ -4,10 +4,8 @@
 
 use std::collections::BTreeMap;
 
-use crate::{
-    api::DriveRecord,
-    streams::{AudioStream, SubtitleStream, VideoStream},
-};
+use crate::api::DrvRecord;
+use crate::runner::StreamRecord;
 
 // CINFO:<...>
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
@@ -105,16 +103,9 @@ pub struct MakeMkvRecord {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
-pub struct StreamsRecord {
-    pub audio: BTreeMap<usize, AudioStream>,
-    pub subtitles: BTreeMap<usize, SubtitleStream>,
-    pub video: BTreeMap<usize, VideoStream>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
 pub struct TitleRecord {
     pub info: TitleAttributes,
-    pub streams: StreamsRecord,
+    pub streams: BTreeMap<usize, StreamRecord>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -125,7 +116,7 @@ pub struct ContentRecord {
 
 #[derive(Debug, PartialEq, serde::Serialize)]
 pub struct ParsedOutput {
-    pub drives: Vec<DriveRecord>,
+    pub drives: Vec<DrvRecord>,
     pub content: ContentRecord,
     pub makemkv: MakeMkvRecord,
     // ----------------------------------------

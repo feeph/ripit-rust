@@ -7,18 +7,10 @@ use crate::api::info::InfoRecord;
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
 
-use csv;
+use crate::api::line_parser::parse_line;
 
-pub fn parse_title_info_data(data: &[u8]) -> (usize, InfoRecord) {
-    // A separate CSV reader instance is created for every parsed line.
-    // This is probably okay since the limiting factor here is "reading
-    // from a physical medium", not "lines parsed per millisecond".
-    // TODO validate that the CSV-reader is sufficiently performant
-    let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .from_reader(data);
-    let record = rdr.records().next().unwrap().unwrap();
-    let fields: Vec<String> = record.iter().map(|s| s.to_string()).collect();
+pub fn parse_tinfo_data(data: &[u8]) -> (usize, InfoRecord) {
+    let fields = parse_line(data);
 
     let tid = fields[0].parse::<usize>().unwrap();
 
@@ -40,7 +32,7 @@ mod tests {
     fn parse_tinfo_tid() {
         let data = b"2,8,0,\"1\"";
         // ----------------------------------------------------------------
-        let computed = parse_title_info_data(data).0;
+        let computed = parse_tinfo_data(data).0;
         let expected = 2;
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
@@ -51,7 +43,7 @@ mod tests {
     fn parse_tinfo_record() {
         let data = b"0,31,6120,\"<b>Title information</b><br>\"";
         // ----------------------------------------------------------------
-        let computed = parse_title_info_data(data).1;
+        let computed = parse_tinfo_data(data).1;
         let expected = InfoRecord::new(31, 6120, "<b>Title information</b><br>");
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);

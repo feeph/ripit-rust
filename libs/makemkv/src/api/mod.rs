@@ -17,33 +17,24 @@
 */
 
 mod cinfo;
-mod drive;
+mod drv;
 mod info;
+mod line_parser;
 mod msg;
+mod prgc;
+mod prgt;
+mod prgv;
 mod sinfo;
 mod tcount;
 mod tinfo;
 
-pub use cinfo::parse_content_info_data;
-pub use drive::{ContentType, DriveRecord, parse_drive_record_data};
+pub use cinfo::parse_cinfo_data;
+pub use drv::{ContentType, DrvRecord, DrvStatus, parse_drv_data};
 pub use info::InfoRecord;
-pub use msg::{MessageRecord, parse_msg_data};
-pub use sinfo::parse_stream_info_data;
-pub use tcount::parse_title_count_data;
-pub use tinfo::parse_title_info_data;
-
-// documented usage.txt but not implemented
-// ----------------------------------------
-
-// Current and total progress title
-// PRGC:code,id,name
-// PRGT:code,id,name
-// code - unique message code
-// id - operation sub-id
-// name - name string
-
-// Progress bar values for current and total progress
-// PRGV:current,total,max
-// current - current progress value
-// total - total progress value
-// max - maximum possible value for a progress bar, constant
+pub use msg::{MsgRecord, parse_msg_data};
+pub use prgc::{ProgressCurrentRecord, parse_prgc_data};
+pub use prgt::{ProgressTotalRecord, parse_prgt_data};
+pub use prgv::{ProgressValueRecord, parse_prgv_data};
+pub use sinfo::parse_sinfo_data;
+pub use tcount::parse_tcount_data;
+pub use tinfo::parse_tinfo_data;

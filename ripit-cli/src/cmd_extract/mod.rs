@@ -1,110 +1,587 @@
-/*
-    ripit-cli extract <SOURCE> <TARGET>
+/*!
+    ripit-cli extract [OPTIONS]
+
+    (use `ripit-cli extract --help` for full usage instructions)
+
+    usage:
+
+    ```TEXT
+    # read from an optical drive and write MKV files to target directory
+    # (creates a subdirectory matching the disc's name)
+    ripit-cli extract -d E:       -t C:\mkv
+    ripit-cli extract -d /dev/sr0 -t /mnt/mkv
+
+    # read from multiple optical drives in parallel
+    ripit-cli extract -d D:       -d E:       -t C:\mkv
+    ripit-cli extract -d /dev/sr0 -d /dev/sr1 -t /mnt/mkv
+
+    # read from all available optical drives
+    # (skips drives without a disc)
+    ripit-cli extract -t C:\mkv
+    ripit-cli extract -t /mnt/mkv
+
+    # read from one or more disc images
+    ripit-cli extract -i feature.iso -i bonus.iso -t C:\mkv
+    ripit-cli extract -i *.iso                    -t /mnt/mkv
+    ```
+
+    output example:
+
+    ```TEXT
+    $ ripit-cli extract -O -d /dev/sr1 /dev/sr2 -t /media/backup
+    I: Found 3 drives: /dev/sr0 /dev/sr1 /dev/sr2
+    I: Deleted existing directory "/media/backup/DVDVolume". (0 MKV files, 0 other).
+    I: Using optical drive "/dev/sr2" (DVDVolume).
+    I: Using optical drive "/dev/sr1" (OTAKU_NO_VIDEO).
+    ⠴ [OTAKU_NO_VIDEO] Opening DVD disc (12%)          [██░░░░░░░░░░░░░░░░░░] 00:00:09
+    ⠙ [OTAKU_NO_VIDEO] `--> Scanning contents (0%)     [░░░░░░░░░░░░░░░░░░░░] 00:00:00
+    ⠙ [DVDVolume] Opening DVD disc (2%)                [░░░░░░░░░░░░░░░░░░░░] 00:00:08
+    ⠸ [DVDVolume] `--> Scanning contents (1%)          [░░░░░░░░░░░░░░░░░░░░] 00:00:00
+    ```
+
+    A logfile with makemkvcon's output is added to the target directory.
+
 */
 
-use std::path::Path;
+// standard library imports
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
+// third-party imports
 use clap::{Parser, ValueHint};
-
+use dialoguer::Confirm;
 #[allow(unused_imports)]
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
+use serde::Serialize;
+use tokio::spawn;
+use tokio::sync::mpsc;
+use tokio::time::{Duration, sleep};
+
+// crate-provided imports
+use crate::progress_tracker::ProgressTracker;
+use ripit::{ExtractEvent, OpticalDrive, ScanMode, extract_from_drive, extract_from_image, find_drives, find_matching_drive, find_matching_drives};
+
+// ------------------------------------------------------------------------
+// public interface
+// ------------------------------------------------------------------------
+
+#[derive(clap::ValueEnum, Clone, Default, Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum OutputFormat {
+    #[default]
+    Text,
+    Yaml,
+}
 
 #[derive(Parser, Debug)]
 pub struct CmdArgs {
-    /// A path-like source: directory, filename, device name, or drive letter
-    #[arg(value_hint = ValueHint::FilePath)]
-    source: String,
+    // Please note:
+    // Trailing dots in ///-comments are stripped by clap.
+
+    /// Select a drive, e.g. 'D:' or '/dev/sr0' (repeatable)
+    /// (implies usage of all drives if none are selected)
+    #[arg(short = 'd', long = "drive", num_args = 1..)]
+    drives_want: Vec<PathBuf>,
+
+    /// Select an image, e.g. 'image.iso' (repeatable)
+    #[arg(short = 'i', long = "disc-image", num_args = 1..)]
+    disc_image: Vec<PathBuf>,
 
     /// Target directory
-    #[arg(value_hint = ValueHint::DirPath)]
+    #[arg(short = 't', long = "target-dir", default_value = ".", value_hint = ValueHint::DirPath)]
     target: std::path::PathBuf,
 
-    /// Extract specific title(s)
-    #[arg(short = 't', long = "title", value_name = "TITLE")]
-    title: Vec<usize>,
+    // /// A path-like source: directory, filename, device name, or drive letter
+    // #[arg()]
+    // source: std::path::PathBuf,
+
+    // /// Write MKV files to a disc-specific directory at this location
+    // #[arg(short = 'r', long = "target-root", default_value = ".", value_hint = ValueHint::DirPath)]
+    // target: std::path::PathBuf,
+
+    /// Extract one or more specific title(s) identified by their index [defaults to 'all']
+    #[arg(short = 'T', long = "title", value_name = "TITLE")]
+    titles: Vec<usize>,
 
     /// Ignore all titles shorter than x seconds (env: MIN_LENGTH)
-    #[arg(short = 'l', long = "min-length", env = "MIN_LENGTH")]
-    min_length: Option<usize>,
+    #[arg(short = 'L', long = "min-length", default_value = "0", env = "MIN_LENGTH")]
+    min_length: usize,
 
-    /// Enable verbose logging
-    #[arg(short, long)]
-    verbose: bool,
+    /// Allow overwriting existing an already existing directory
+    #[arg(short = 'O', long = "allow-overwrite", default_value = "false")]
+    allow_overwrite: bool,
+
+    /// Eject medium from optical drive after extracting
+    #[arg(short = 'e', long = "eject-when-done")]
+    eject_when_done: bool,
+
+    /// Write output  to a file
+    #[arg(short = 'o', long = "output-file", value_hint = ValueHint::FilePath)]
+    output_file: Option<PathBuf>,
+
+    /// Select output format
+    #[arg(short = 'f', long = "output-format", default_value_t, value_enum)]
+    output_format: OutputFormat,
+    
+    #[clap(flatten)]
+    global_opts: crate::GlobalOpts,
+    // #[arg(long = "log-level", help = "Set logging level (debug, info, warn, error). Default is 'warn'")]
+    // log_level: Option<log::Level>,
 }
 
-pub fn run(args: CmdArgs, makemkvcon_bin: &Path) -> i32 {
-    // use provided value or default to 0
-    let min_length = args.min_length.unwrap_or_default();
+enum SourceType {
+    Image(PathBuf),
+    Drive(OpticalDrive),
+}
 
-    let target_str = args.target.to_string_lossy();
-    if args.verbose {
-        info!("[verbose] extract {} -> {}", &args.source, &target_str);
-    }
-    info!(
-        "Running extract with source='{}' target='{}'",
-        &args.source, &target_str
-    );
+/// example output:
+/// 
+/// ```TEXT
+/// <...>
+/// ```
+pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
+    crate::logging::init_logger(args.global_opts.log_level);
 
-    // scan the medium and find all titles
-    let scan_result = match makemkv::info(makemkvcon_bin, &args.source, min_length) {
-        Some(x) => x,
-        None => {
-            return exitcode::DATAERR;
+    debug!("drive(s):        {:#?}", args.drives_want);
+    debug!("disc_image(s):   {:#?}", args.disc_image);
+    debug!("target:          {:#?}", args.target);
+    debug!("allow_overwrite: {:#?}", args.allow_overwrite);
+    debug!("eject_when_done: {:#?}", args.eject_when_done);
+    debug!("min_length:      {:#?}", args.min_length);
+    debug!("output_file:     {:#?}", args.output_file);
+    debug!("output_format:   {:#?}", args.output_format);
+
+    let mut pt = ProgressTracker::new();
+
+    // if no titles are specified use the keyword "all"
+    let titles: Vec<String> = if !args.titles.is_empty() {
+        args.titles.clone().iter().map(|title| title.to_string()).collect()
+    } else {
+        vec!["all".to_string()]
+    };
+    debug!("titles:          {}", titles.join(", "));
+
+    // the required order of operations is:
+    // 1. identify the source's type (image or drive)
+    // 2. identify the disc's name
+    // 2.1. image: derive from filename
+    // 2.2. drive: access drive and read disc
+    // 3. create actual target dir value
+    // 4. delete existing target (if it exists)
+
+    // using drives and images at the same time is not supported because
+    // that allows us to skip the drive scanning if one or more image are
+    // being used. This may reduce startup time by up to a minute.
+    // (Depending on how many drives are present and if they are currently
+    // busy.)
+    let mut sources = Vec::new();
+    if !args.disc_image.is_empty() {
+        for filename in args.disc_image {
+            if filename.is_file() || filename.is_dir() {
+                // file or directory: assume image
+                // -> use the filename (without extension) as disc's name
+                let disc_name: String = filename.file_stem().expect("not a filename?").to_string_lossy().to_string();
+                sources.push((SourceType::Image(filename), disc_name));
+
+            } else {
+                let message = format!("Image {:#?} is neither a file or directory. Ignoring.", filename);
+                pt.send_text_message(&message);
+            }
+        }
+    } else {
+        let scan_mode = ScanMode::DriveAndDisc;
+        let drives_have = find_drives(mm.to_owned(), scan_mode).await.expect("Reading drives should never fail.");
+        if drives_have.is_empty() {
+            pt.send_text_message("E: Found no available drives!");
+            return exitcode::IOERR;
+        } else {
+            // convert 'Vec<OpticalDrive>' into a stringified list of sorted
+            // device names, e.g. '/dev/sr0 /dev/sr1'
+            let mut device_names = drives_have
+                .clone()
+                .into_iter()
+                .map(|drv| drv.device.to_string_lossy().to_string())
+                .collect::<Vec<_>>();
+            device_names.sort();
+            let device_names_str = device_names.join(" ");
+            pt.send_text_message(&format!("I: Found {} drives: {}", drives_have.len(), device_names_str));
+        }
+
+        let drives_want = args.drives_want;
+
+        let drives = find_matching_drives(&drives_have, &drives_want);
+        debug!("drives_have: {:#?}", drives_have);
+        debug!("drives_want: {:#?}", drives_want);
+        debug!("filtered:    {:#?}", drives);
+
+        for drive in drives {
+            match &drive.disc {
+                Some(disc) => {
+                    let disc_name = disc.get_name().to_string();
+                    sources.push((SourceType::Drive(drive), disc_name));
+                },
+                None => {
+                    let message = format!("I: Unable to detect disc in drive {:#?}. Ignoring.", drive.device);
+                    pt.send_text_message(&message);
+                }
+            };
         }
     };
 
-    let parsed = scan_result.parsed.unwrap();
-    let titles_have = parsed.titles.clone();
+    if sources.is_empty() {
+        let message = "Must provide at least one drive or disc image!";
+        pt.send_text_message(message);
+        return exitcode::CONFIG;
+    }
 
-    let titles_want = if !args.title.is_empty() {
-        info!(
-            "Selected {} titles for extraction: {:?}",
-            args.title.len(),
-            args.title
-        );
-        args.title
-    } else {
-        info!("Selected {} titles for extraction.", titles_have.len());
-        let mut tmp: Vec<usize> = titles_have.clone().into_keys().collect();
-        tmp.sort_unstable();
-        tmp
-    };
+    let (tx, mut rx) = mpsc::channel::<ExtractEvent>(256);
 
-    let t_total = titles_want.len();
+    let mut workers = HashMap::new();
+    for (source_type, disc_name) in sources {
+        // take user-provided target value and append the disc's name
+        let target_mkv = normalize_path(&args.target).join(&disc_name);
 
-    // titles_want is a non-consecutive list of numbers if
-    // specific titles have been requested for extraction
-    // -> create a new collection which interleaves the
-    //    current title's position with the title's id
-    let title_idx = range::Range::new(1, t_total);
-    let titles = title_idx.iter().zip(titles_want.iter());
+        let allow_overwrite = args.allow_overwrite;
+        let eject_when_done = args.eject_when_done;
 
-    let mut exit_code = exitcode::OK;
-    for (t_pos, id) in titles {
-        match titles_have.get(id) {
-            Some(tr) => {
-                let filename = tr.info.output_file_name.clone().unwrap();
-                debug!(
-                    "Processing '{}' (idx: {}, {}/{})",
-                    &filename, id, t_pos, t_total
-                );
+        // can do this only AFTER knowing whether source is a drive or image
+        if target_mkv.exists() {
+            if allow_overwrite {
+                match check_directory_and_delete(&target_mkv) {
+                    Ok(msg) => {
+                        pt.send_text_message(&msg);
+                    },
+                    Err(err) => {
+                        pt.send_text_message(&err);
+                        return exitcode::OSFILE;
+                    }
+                }
+            } else {
+                pt.send_text_message(&format!("E: Directory {:#?} exists and '--allow-overwrite' is not used. Unable to proceed.", target_mkv));
+                return exitcode::OSFILE;
+            }
+        }
+        debug!("disc_name:       {}", disc_name);
+        let mm_mkv = mm.clone();
 
-                if makemkv::mkv(makemkvcon_bin, &args.source, *id, &args.target, min_length) {
-                    info!(
-                        "Successfully extracted '{}'. ({}/{})",
-                        &filename, t_pos, t_total
-                    );
-                } else {
-                    warn!("Failed to extract '{}'! ({}/{})", &filename, t_pos, t_total);
-                    exit_code = exitcode::DATAERR
+        // create copies of relevant resources for 'async move{}'
+        let mm_cpy = mm_mkv.clone();
+        let titles_cpy = titles.clone();
+        let target_cpy = target_mkv.clone();
+        let tx_cpy = tx.clone();
+
+        // spawn the source-specific extraction process
+        let th_mkv = match source_type {
+            SourceType::Drive(drive) => {
+                pt.send_text_message(&format!("I: Using optical drive {:#?} ({}).", drive.device, disc_name));
+
+                spawn(async move {
+                    extract_from_drive(mm_cpy, drive, target_cpy, titles_cpy, eject_when_done, tx_cpy).await
+                })
+            },
+            SourceType::Image(image) => {
+                pt.send_text_message(&format!("I: Using disc image {:#?} ({}).", image, disc_name));
+
+                spawn(async move {
+                    extract_from_image(mm_cpy, image, target_cpy, titles_cpy, tx_cpy).await
+                })
+            }
+        };
+        workers.insert(disc_name, th_mkv);
+    }
+
+    // monitor progress of worker tasks and terminate
+    // parse incoming events until the spawned task finishes
+    let mut stages: HashMap<String, HashMap<String, f32>> = HashMap::new();
+    let mut events = Vec::new();
+    let batch_size = 32;
+    // let mut failed = 0usize;
+    let mut jobs_done = 0;
+    let mut jobs_failed = 0;
+    // let result;
+    loop {
+        tokio::select! {
+            // batched processing of generated events to reduce overhead
+            //
+            // It is important to create/clear the progress bars and avoid
+            // reusing the same objects because the presented runtime value
+            // is derived from the progress bar's creation time:
+            //
+            // ⠦ [/dev/sr1] Copying all files (0%)  [░░░░░░░░░░░░░░░░░░░░] 00:00:25
+            //                                                             ^^^^^^^^
+            _ = rx.recv_many(&mut events, batch_size) => {
+                // parse generated events
+                for event in events.drain(..) {
+                    match event {
+                        ExtractEvent::MsgInfo(_msg) => {
+                            // info!("[{}] MSG:{} - {}", msg.device.to_string_lossy(), msg.message.code, msg.message.message);
+                            // println!("[{}] {}", msg.device.to_string_lossy(), msg.message.message);
+                        },
+                        ExtractEvent::MsgWarn(msg) => {
+                            pt.send_text_message(&format!("[makemkv] W: MSG:{} - {}", msg.message.code, msg.message.message));
+                        },
+                        ExtractEvent::MsgFail(msg) => {
+                            pt.send_text_message(&format!("[makemkv] E: MSG:{} - {}", msg.message.code, msg.message.message));
+                        },
+                        ExtractEvent::ProgressT(pu) => {
+                            // "Scanning CD-ROM devices" / "Copying all files"
+                            // There should be exactly two events per backup
+                            // job: scanning and copying.
+
+                            // create progress bar for current stage
+                            let pb_prgt_id = pu.get_device_id();
+                            let device_name = pu.source.clone();
+                            let stage_name = pu.get_stage_name();
+                            pt.create_progress_bar(&pb_prgt_id, &device_name, &stage_name);
+                        },
+                        ExtractEvent::ProgressC(pu) => {
+                            // "Scanning contents" / "Copying file" / ...
+                            // For DVDs and HD-DVDs there's exactly one
+                            // "Copying file" task (the ISO image), for
+                            // Blu-Rays there might easily be a thousand)
+
+                            // create progress bar for current task
+                            let pb_prgt_id = pu.get_device_id();
+                            let pb_prgc_id = pu.get_stage_id();
+                            let device_name = pu.source.clone();
+                            let task_name = pu.get_task_name();
+                            pt.create_progress_bar_after(&pb_prgc_id, &device_name, &task_name, &pb_prgt_id).unwrap();
+                        },
+                        ExtractEvent::ProgressValue(pu) => {
+                            // "Processing title sets"
+                            // "Scanning contents"
+                            let device_name = pu.source.clone();
+                            let disc_name = pu.disc.get_name();
+                            let stage_name = pu.get_stage_name(); // reported as 'total'
+                            let task_name = pu.get_task_name(); // reported as 'current'
+                            let device_stage = stages.entry(device_name.clone()).or_insert(HashMap::from([(stage_name.clone(), f32::NAN)]));
+                            let task_pct_old = device_stage.get(&stage_name).unwrap_or(&f32::NAN);
+                            let task_pct_new = pu.prgc.percentage;
+
+                            debug!("[{}] {}: old: {:6.2}% new: {:6.2}%", device_name, task_name, task_pct_old, task_pct_new);
+
+                            // throttle log output: notify only if stage or
+                            // percentage has changed more than 5%
+                            // (prevent log-flooding)
+                            if task_pct_old.is_nan() || task_pct_new >= task_pct_old + 5.0 {
+                                info!("[{}] {}: {:3.0}% (done: {}, failed: {})", device_name, stage_name, task_pct_new, jobs_done, jobs_failed);
+                            }
+
+                            // throttle progress bars: notify only if stage or
+                            // percentage has changed more than 0.1%
+                            // (indicatif handles fine-grained throttling)
+                            if task_pct_old.is_nan() || task_pct_new >= task_pct_old + 0.1 {
+                                let pb_prgt_id = pu.get_device_id();
+                                let pb_prgc_id = pu.get_stage_id();
+
+                                // modify the task name to make it more
+                                // obvious how stage and task are related:
+                                // ----------------------------------------
+                                // ⠸ [/dev/sr0] Copying all files (6%)    [█░░░░░░░░░░░░░░░░░░░] 00:03:25
+                                // ⠹ [/dev/sr0] `--> Copying file (25%)   [████░░░░░░░░░░░░░░░░] 00:00:12
+                                // ----------------------------------------
+                                let task_name_mod = format!("`--> {}", task_name);
+
+                                pt.update_progress_bar(&pb_prgt_id, disc_name, &stage_name, pu.prgt.percentage).unwrap();
+                                pt.update_progress_bar(&pb_prgc_id, disc_name, &task_name_mod, pu.prgc.percentage).unwrap();
+                            }
+
+                            // remove the progress bar after they reached 100%
+                            if pu.prgc.percentage >= 100.0 {
+                                let pb_prgc_id = pu.get_stage_id();
+                                pt.clear_progress_bar(&pb_prgc_id).unwrap();
+                            }
+                            if pu.prgt.percentage >= 100.0 {
+                                let pb_prgt_id = pu.get_device_id();
+                                pt.clear_progress_bar(&pb_prgt_id).unwrap();
+                            }
+                        },
+                    }
+                }
+            },
+            // <legacy code>
+            // record completion and drain buffered events before returning
+            // res = &mut th, if result.is_none() => {
+            //     result = Some(res);
+            // },
+            // res = &mut th_mkv => {
+            //     result = res;
+            //     break;
+            // }
+            // </legacy code>
+            else => {
+                pt.send_text_message("tokio::select!(): break triggered");
+                break;
+            },
+        }
+
+        // test if the thread is still running or has finished and provided a result
+        debug!("workers (pre-cleanup):  {}", workers.len());
+        for (disc_name, worker) in workers.extract_if(|_, worker| worker.is_finished()) {
+
+            // TODO do we need to drain potentially remaining events?
+            match worker.await.unwrap() {
+                Ok(result) => {
+                    let elapsed = result.elapsed_secs;
+                    let size_mb = (result.fs_size as f32) / 1024u32.pow(2) as f32;
+                    let size_gb = (result.fs_size as f32) / 1024u32.pow(3) as f32;
+                    let write_rate = size_mb / (elapsed as f32);
+                    let message = format!("[{}] Extraction completed backup after {} seconds. ({:.1}GiB written, {:.1}MiB/s)", disc_name, elapsed, size_gb, write_rate);
+                    pt.send_text_message(&message);
+                    jobs_done += 1;
+
+                    // update total bytes
+                    // progress.on_backup_completed(result.fs_size);
+                },
+                Err(error) => {
+                    let message = format!("[{}] Extraction failed: {:#?}", disc_name, error.reason);
+                    pt.send_text_message(&message);
+                    jobs_failed += 1;
                 }
             }
-            None => {
-                warn!("Requested title '{}' does not exist.", id);
-                exit_code = exitcode::DATAERR
+        }
+        // after this loop has run:
+        // - 'workers' contains active threads
+        // - 'drives_done' contains drives with successful backup
+        // - 'drives_failed' contains drives with failed backup
+        debug!("workers (post-cleanup): {}", workers.len());
+
+        // FIXME the loop-termination does not work
+        // - ripit-cli hangs and does not return to shell prompt
+        // - potentially related to disk space issues (filesystem full)
+        // ----------------------------------------------------------------
+        // I: Found 3 drives: /dev/sr0 /dev/sr1 /dev/sr2
+        // I: Deleted existing directory "/media/backup/dump/_dev6_multi/DVDVolume". (0 MKV files, 0 other).
+        // I: Using optical drive "/dev/sr2" (DVDVolume).
+        // I: Using optical drive "/dev/sr1" (OTAKU_NO_VIDEO).
+        // [makemkv] E: MSG:2018 - Error 'Posix error - Resource temporarily unavailable' occurred while writing data to '/media/backup/dump/_dev6_multi/DVDVolume/B1_t00.mkv' at offset '1207959552'
+        // [makemkv] E: MSG:2018 - Error 'Posix error - Resource temporarily unavailable' occurred while writing data to '/media/backup/dump/_dev6_multi/OTAKU_NO_VIDEO/C1_t04.mkv' at offset '2181038080'
+        // [makemkv] E: MSG:5003 - Failed to save title 4 to file /media/backup/dump/_dev6_multi/OTAKU_NO_VIDEO/C1_t04.mkv
+        // [makemkv] E: MSG:5003 - Failed to save title 0 to file /media/backup/dump/_dev6_multi/DVDVolume/B1_t00.mkv
+        // [makemkv] E: MSG:5004 - 17 titles saved, 1 failed
+        // [makemkv] E: MSG:5037 - Copy complete. 17 titles saved, 1 failed.
+        // [OTAKU_NO_VIDEO] Extraction completed backup after 867 seconds. (3.7GiB written, 4.4MiB/s)
+        // [makemkv] E: MSG:2019 - Error 'Posix error - No such file or directory' occurred while creating '/media/backup/dump/_dev6_multi/DVDVolume/B1_t16.mkv'
+        // [makemkv] E: MSG:5003 - Failed to save title 16 to file /media/backup/dump/_dev6_multi/DVDVolume/B1_t16.mkv
+        // [makemkv] E: MSG:5004 - 15 titles saved, 2 failed
+        // [makemkv] E: MSG:5037 - Copy complete. 15 titles saved, 2 failed.
+        // ⠸ [OTAKU_NO_VIDEO] Saving all titles to MKV files (100%)    [████████████████████] 00:13:03
+        // ⠇ [DVDVolume] Saving all titles to MKV files (100%)    [████████████████████] 00:20:43
+        // ^C
+        // ----------------------------------------------------------------
+        if workers.is_empty() {
+            break;
+        } else {
+            sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+    if !rx.is_empty() {
+        error!("Receiver queue contains {} messages!", rx.len());
+        while let Some(msg) = rx.recv().await {
+            error!("{:#?}", msg);
+        }
+    }
+
+    if jobs_failed == 0 {
+        exitcode::OK
+    } else {
+        exitcode::IOERR
+    }
+}
+
+// ------------------------------------------------------------------------
+// private helper functions
+// ------------------------------------------------------------------------
+
+/// strip trailing slash or backslash from provided value
+fn normalize_path(value: &Path) -> PathBuf {
+    std::path::PathBuf::from(value.to_string_lossy().trim_end_matches(['/', '\\']))
+}
+
+fn check_directory_and_delete(directory: &PathBuf) -> Result<String, String> {
+    if !directory.is_dir() {
+        let error = format!("E: {:#?} exists but it's not a directory!", directory);
+        return Err(error);
+    }
+
+    // check directory contents
+    let mut mkv_files = 0usize;
+    let mut non_mkv = 0usize;
+    let mut unknown = 0usize;
+    let entries = std::fs::read_dir(directory).expect("Unable to read directory");
+    for result in entries {
+        match result {
+            Ok(entry) => {
+                let filename = entry.path();
+                if filename.is_file() {
+                    // match filename.extension() {
+                    //     Some(ext) => {
+                    //         if ext.to_str().unwrap_or("") == "mkv" {
+                    //             mkv_files += 1;
+                    //         } else {
+                    //             non_mkv += 1;
+                    //         }
+                    //     }
+                    //     None => {
+                    //         non_mkv += 1;
+                    //     }
+                    // }
+                    match filename.extension() {
+                        Some(ext) if ext.to_str().unwrap_or("") == "mkv" => {
+                            mkv_files += 1;
+                        }
+                        Some(_) | None => {
+                            non_mkv += 1;
+                        }
+                    }
+                } else {
+                    non_mkv += 1;
+                }
+            },
+            Err(_e) => {
+                unknown += 1;
             }
         }
     }
 
-    exit_code
+    // deletion can be dangerous - ask user for permission
+    if unknown > 0 {
+        let error = format!("E: Directory {:#?} contains unexpected files! Unable to proceed.", directory);
+        return Err(error);
+    } else if non_mkv > 0 {
+        // directory contains non-MKV files
+        // --> ask user for confirmation
+        let prompt_msg = format!("Recursively delete existing directory {:#?}?", directory);
+        let proceed = Confirm::new()
+            .with_prompt(prompt_msg)
+            .default(false)
+            .interact()
+            .expect("Failed to read confirmation");
+
+        if proceed {
+            // user has confirmed
+            // --> safe to delete
+        } else {
+            let error = format!("E: User denied permission to delete directory {:#?}! Unable to proceed.", directory);
+            return Err(error);
+        }
+    } else if mkv_files > 0 {
+        // directory contains mkv files and nothing else
+        // --> relatively safe to delete
+    } else {
+        // directory is empty
+        // --> safe to delete
+    }
+
+    match std::fs::remove_dir_all(directory) {
+        Ok(_) => {
+            let msg = format!("I: Deleted existing directory {:#?}. ({} MKV files, {} other).", directory, mkv_files, non_mkv);
+            Ok(msg)
+        },
+        Err(e) => {
+            let error = format!("E: Unable to delete directory {:#?}: {:#?}", directory, e);
+            Err(error)
+        }
+    }
 }

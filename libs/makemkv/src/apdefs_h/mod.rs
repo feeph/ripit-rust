@@ -24,8 +24,8 @@ use num::FromPrimitive;
 //     Bdsvm = 16, // AP_DskFsFlagBdsvmFilesPresent
 
 enum_from_primitive! {
-    #[derive(Clone, Debug, PartialEq, serde::Serialize)]
-    pub enum DriveStatus {
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+    pub enum DrvStatus {
         EmptyClosed = 0, // AP_DriveStateEmptyClosed
         EmptyOpen = 1, // AP_DriveStateEmptyOpen
         DiscInserted = 2, // AP_DriveStateInserted

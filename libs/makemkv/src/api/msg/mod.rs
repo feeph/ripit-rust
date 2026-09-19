@@ -5,10 +5,10 @@
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
 
-use csv;
+use crate::api::line_parser::parse_line;
 
-#[derive(Debug, PartialEq)]
-pub struct MessageRecord {
+#[derive(Clone, Debug, PartialEq)]
+pub struct MsgRecord {
     pub code: u32,
     pub flags: u32,
     pub count: u32,
@@ -17,16 +17,8 @@ pub struct MessageRecord {
     pub params: Vec<String>,
 }
 
-pub fn parse_msg_data(data: &[u8]) -> MessageRecord {
-    // A separate CSV reader instance is created for every parsed line.
-    // This is probably okay since the limiting factor here is "reading
-    // from a physical medium", not "lines parsed per millisecond".
-    // TODO validate that the CSV-reader is sufficiently performant
-    let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .from_reader(data);
-    let record = rdr.records().next().unwrap().unwrap();
-    let fields: Vec<String> = record.iter().map(|s| s.to_string()).collect();
+pub fn parse_msg_data(data: &[u8]) -> MsgRecord {
+    let fields = parse_line(data);
 
     let code_u32 = fields[0].parse::<u32>().unwrap();
     let flags_u32 = fields[1].parse::<u32>().unwrap();
@@ -39,7 +31,7 @@ pub fn parse_msg_data(data: &[u8]) -> MessageRecord {
         Vec::new()
     };
 
-    MessageRecord {
+    MsgRecord {
         code: code_u32,
         flags: flags_u32,
         count: count_u32,
@@ -55,11 +47,11 @@ mod tests {
 
     // MSG:3007,0,0,"Using direct disc access mode","Using direct disc access mode"
     #[test]
-    fn parse_message_without_value() {
+    fn parse_msg_without_value() {
         let data = b"3007,0,0,\"Using direct disc access mode\",\"Using direct disc access mode\"";
         // ----------------------------------------------------------------
         let computed = parse_msg_data(data);
-        let expected = MessageRecord {
+        let expected = MsgRecord {
             code: 3007,
             flags: 0,
             count: 0,
@@ -73,11 +65,11 @@ mod tests {
 
     // MSG:1005,0,1,"MakeMKV v1.17.9 linux(x64-release) started","%1 started","MakeMKV v1.17.9 linux(x64-release)"
     #[test]
-    fn parse_message_with_single_value() {
+    fn parse_msg_with_single_value() {
         let data = b"1005,0,1,\"MakeMKV v1.17.9 linux(x64-release) started\",\"%1 started\",\"MakeMKV v1.17.9 linux(x64-release)\"";
         // ----------------------------------------------------------------
         let computed = parse_msg_data(data);
-        let expected = MessageRecord {
+        let expected = MsgRecord {
             code: 1005,
             flags: 0,
             count: 1,
@@ -91,11 +83,11 @@ mod tests {
 
     // MSG:3028,0,3,"Title #1 was added (1 cell(s), 0:23:39)","Title #%1 was added (%2 cell(s), %3)","1","1","0:23:39"
     #[test]
-    fn parse_message_with_multiple_values() {
+    fn parse_msg_with_multiple_values() {
         let data = b"3028,0,3,\"Title #1 was added (1 cell(s), 0:23:39)\",\"Title #%1 was added (%2 cell(s), %3)\",\"1\",\"1\",\"0:23:39\"";
         // ----------------------------------------------------------------
         let computed = parse_msg_data(data);
-        let expected = MessageRecord {
+        let expected = MsgRecord {
             code: 3028,
             flags: 0,
             count: 3,

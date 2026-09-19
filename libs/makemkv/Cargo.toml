@@ -7,13 +7,13 @@ rust-version = { workspace = true }
 version = "0.1.0"
 
 [dependencies]
-async-stream = { workspace = true }
-csv = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
 enum_primitive = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
 num = { workspace = true }
-tokio = { features = ["process", "io-util"], workspace = true }
+tokio = { features = ["io-util", "process", "rt", "rt-multi-thread", "sync", "time", "macros"], workspace = true }
 regex = { workspace = true }
 serde = { features = ["derive", "std"], workspace = true }
 strum_macros = { workspace = true }

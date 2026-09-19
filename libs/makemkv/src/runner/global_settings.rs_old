@@ -1,0 +1,75 @@
+/*
+    global settings
+    (these settings apply to all makemkvcon commands)
+*/
+
+// standard library imports
+use std::path::PathBuf;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum OutputType {
+    StdOut,
+    StdErr,
+    Silent,
+    File(PathBuf)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DirectIO {
+    Enabled,
+    Disabled,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct GlobalSettings {
+    pub disable_scan: bool,
+    pub debug: bool,
+    pub directio: DirectIO,
+    pub messages: OutputType,
+    pub progress: OutputType, 
+    pub min_length: usize,
+}
+
+impl GlobalSettings {
+    pub fn default() -> Self {
+        Self {
+            disable_scan: false,
+            debug: false,
+            directio: DirectIO::Enabled,
+            messages: OutputType::StdOut,
+            progress: OutputType::Silent,
+            min_length: 120
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_settings_default() {
+        // ----------------------------------------------------------------
+        let computed = GlobalSettings::default();
+        let expected = GlobalSettings{
+            disable_scan: false,
+            debug: false,
+            directio: DirectIO::Enabled,
+            messages: OutputType::StdOut,
+            progress: OutputType::Silent,
+            min_length: 120
+        };
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_settings_copy() {
+        let settings = GlobalSettings::default();
+        // ----------------------------------------------------------------
+        let computed = settings.clone();
+        let expected = settings;
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+}
