@@ -18,6 +18,8 @@ use std::path::PathBuf;
 
 // third-party imports
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+#[allow(unused_imports)]
+use log::{debug, error, info, trace, warn};
 
 // crate-provided imports
 use truncate_string::truncate_string;
@@ -38,7 +40,6 @@ pub struct ProgressTracker {
 }
 
 impl ProgressTracker {
-
     pub fn new() -> Self {
         // let sty = ProgressStyle::with_template(
         //     "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}",
@@ -59,21 +60,36 @@ impl ProgressTracker {
         let message = format_time(0);
         let length = 100; // 100% = done
 
-        let pb = self.mp.add(ProgressBar::new(length))
-            .with_style(self.style.clone())
-            .with_prefix(prefix)
-            .with_message(message);
+        // order of operations is important as outlined in indicatif:src/multi.rs
+        // <https://github.com/console-rs/indicatif/blob/92cf1ae5f47c4bc2fb83556aa96f021727082ccc/src/multi.rs#L25-L29>
+
+        // 1. create ProgressBar and attach it to MultiProgress
+        // (!!do nothing else!!)
+        let pb = self.mp.add(ProgressBar::new(length));
+
+        // 2. configure the progress bar
+        pb.set_style(self.style.clone());
+        pb.set_prefix(prefix);
+        pb.set_message(message);
 
         self.pb.insert(id.to_owned(), pb);
     }
 
-    pub fn create_progress_bar_after(&mut self, id: &str, device: &str, stage: &str, id_parent: &str) -> Result<(), bool> {
+    pub fn create_progress_bar_after(
+        &mut self,
+        id: &str,
+        device: &str,
+        stage: &str,
+        id_parent: &str,
+    ) -> Result<(), bool> {
         let prefix = format!("[{}] {:40}", device, stage);
         let message = format_time(0);
         let length = 100; // 100% = done
 
         if let Some(pb_parent) = self.pb.get_mut(id_parent) {
-            let pb = self.mp.insert_after(pb_parent, ProgressBar::new(length))
+            let pb = self
+                .mp
+                .insert_after(pb_parent, ProgressBar::new(length))
                 .with_style(self.style.clone())
                 .with_prefix(prefix)
                 .with_message(message);
@@ -85,7 +101,13 @@ impl ProgressTracker {
         }
     }
 
-    pub fn update_progress_bar(&mut self, id: &str, device: &str, stage: &str, percentage: f32) -> Result<(), bool> {
+    pub fn update_progress_bar(
+        &mut self,
+        id: &str,
+        device: &str,
+        stage: &str,
+        percentage: f32,
+    ) -> Result<(), bool> {
         let stage_str = if percentage.is_nan() {
             stage.to_string()
         } else {
@@ -124,10 +146,23 @@ impl ProgressTracker {
         self.mp.println(message).unwrap();
     }
 
-    pub fn stop(&mut self, ) {
+    // pub fn stop(&mut self, ) {
+    //     self.mp.clear().unwrap();
+    // }
+
+    pub fn get_seen(&self) -> Vec<String> {
+        self.pb.keys().cloned().collect()
+    }
+}
+
+impl Drop for ProgressTracker {
+    fn drop(&mut self) {
+        for (pb_id, pb) in self.pb.iter_mut() {
+            debug!("{:30}: {}", pb_id, pb.position());
+            pb.finish();
+        }
         self.mp.clear().unwrap();
     }
-
 }
 
 // #[derive(Clone, Debug)]
@@ -177,7 +212,7 @@ impl ProgressTracker {
 //         //     status: status.to_owned(),
 //         //     percentage: f32::NAN,
 //         // };
-//         // let key = device.to_string_lossy().to_string(); 
+//         // let key = device.to_string_lossy().to_string();
 //         // self.device.insert(key, value);
 //
 //         // add the progress bar
@@ -188,7 +223,7 @@ impl ProgressTracker {
 //     }
 //
 //     pub fn update(&mut self, device: &PathBuf, disc_name: &str, status: &str, percentage: f32) {
-//         let key = device.to_string_lossy().to_string(); 
+//         let key = device.to_string_lossy().to_string();
 //         if let Some(value) = self.device.get_mut(&key) {
 //             // update existing entry
 //             value.disc = disc_name.to_owned();
@@ -208,7 +243,7 @@ impl ProgressTracker {
 //     }
 //
 //     pub fn delete(&mut self, device: &PathBuf) {
-//         let key = device.to_string_lossy().to_string(); 
+//         let key = device.to_string_lossy().to_string();
 //         self.device.remove(&key);
 //     }
 //
@@ -433,12 +468,12 @@ mod tests {
         let drive_name = PathBuf::from("/dev/sr0");
         let disc_name = "DVDVolume";
         let stage = "Scanning contents";
-        let percentage =  12.34;
+        let percentage = 12.34;
         // ----------------------------------------------------------------
         let computed = format_message(&drive_name, disc_name, stage, percentage);
-        let expected = "[/dev/sr0] DVDVolume                      | Scanning contents (12%)       ".to_string();
+        let expected = "[/dev/sr0] DVDVolume                      | Scanning contents (12%)       "
+            .to_string();
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
-
 }

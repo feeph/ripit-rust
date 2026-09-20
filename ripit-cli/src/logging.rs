@@ -89,10 +89,16 @@ impl log::Log for CustomLogger {
         let (color_code, reset_code) = match record.level() {
             Level::Warn => ("\x1b[33m", "\x1b[0m"),  // Yellow
             Level::Error => ("\x1b[31m", "\x1b[0m"), // Red
-            _ => ("", ""),                             // Default terminal color
+            _ => ("", ""),                           // Default terminal color
         };
 
-        let message = format!("{}{}{}: {}", color_code, level_char, reset_code, record.args());
+        let message = format!(
+            "{}{}{}: {}",
+            color_code,
+            level_char,
+            reset_code,
+            record.args()
+        );
 
         // Route to stdout for Info/Debug/Trace, stderr for Warn/Error
         match record.level() {

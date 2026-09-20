@@ -16,9 +16,21 @@ use log::{debug, error, info, trace, warn};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProgressValueRecord {
+    pub source: String,
     pub current: u32,
     pub total: u32,
     pub maximum: u32,
+}
+
+impl ProgressValueRecord {
+    pub fn new(source: &str, current: u32, total: u32, maximum: u32) -> Self {
+        ProgressValueRecord {
+            source: source.to_string(),
+            current,
+            total,
+            maximum,
+        }
+    }
 }
 
 pub fn parse_prgv_data(data: &[u8]) -> (u32, u32, u32) {
@@ -32,14 +44,23 @@ pub fn parse_prgv_data(data: &[u8]) -> (u32, u32, u32) {
     // not supposed to trigger
     // (if this triggers there's an issue with MakeMKV)
     if current > maximum {
-        warn!("PRGV: Current percentage exceeds maximum percentage! ({} > {})", current, maximum)
+        warn!(
+            "PRGV: Current percentage exceeds maximum percentage! ({} > {})",
+            current, maximum
+        )
     }
     // current percentage may exceed total percentage
     if current > total {
-        debug!("PRGV: Current percentage exceeds total percentage. ({} > {})", current, total)
+        debug!(
+            "PRGV: Current percentage exceeds total percentage. ({} > {})",
+            current, total
+        )
     }
     if total > maximum {
-        warn!("PRGV: Total percentage exceeds maximum percentage! ({} > {})", current, maximum)
+        warn!(
+            "PRGV: Total percentage exceeds maximum percentage! ({} > {})",
+            current, maximum
+        )
     }
 
     (current, total, maximum)

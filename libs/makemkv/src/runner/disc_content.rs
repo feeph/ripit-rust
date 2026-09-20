@@ -142,7 +142,11 @@ impl DiscContent {
         Ok(())
     }
 
-    pub fn update_title_attribute(&mut self, tid: usize, ir: &InfoRecord) -> Result<(), UpdateError> {
+    pub fn update_title_attribute(
+        &mut self,
+        tid: usize,
+        ir: &InfoRecord,
+    ) -> Result<(), UpdateError> {
         // get the title's info record
         let tir = self.titles.entry(tid).or_default();
 
@@ -218,14 +222,18 @@ impl DiscContent {
         Ok(())
     }
 
-    pub fn insert_stream_record(&mut self, tid: usize, sid: usize, sr: &StreamRecord) -> Result<(), UpdateError> {
+    pub fn insert_stream_record(
+        &mut self,
+        tid: usize,
+        sid: usize,
+        sr: &StreamRecord,
+    ) -> Result<(), UpdateError> {
         let tir = self.titles.entry(tid).or_default();
         tir.streams.insert(sid, sr.clone());
 
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {

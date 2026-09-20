@@ -24,8 +24,8 @@ use makemkv::{MakeMkvCli, MakeMkvEvent, ScanMode};
 // public interface
 // ------------------------------------------------------------------------
 
-pub use optical_drive::{BluRay, OpticalDisc, OpticalDrive, Dvd, HdDvd};
-pub use makemkv::DrvStatus as DriveStatus; // create an alias
+pub use makemkv::DrvStatus as DriveStatus;
+pub use optical_drive::{BluRay, Dvd, HdDvd, OpticalDisc, OpticalDrive}; // create an alias
 
 /// returns all drives recognized by MakeMKV
 /// (expected output: 0 to 15 drives)
@@ -34,20 +34,22 @@ pub use makemkv::DrvStatus as DriveStatus; // create an alias
 ///     or removing a USB drive
 ///   - adding/removing a SATA drive is possible (may require a bus scan),
 ///     e.g.: `echo "- - -" > /sys/class/scsi_host/host1/scan`
-/// 
+///
 /// Setting 'scan_drives' to false greatly improves the speed of this
 /// operation at the cost of not knowing if a medium is inserted. It is
 /// recommended to set this parameter to false whenever you are interested
 /// exclusively in the drive and don't need to identify if there's a media
 /// loaded and if it's a DVD, HD-DVD or Blu-Ray.
-/// 
+///
 ///   - 3 drives with media and no scanning:  ~1.4 seconds
 ///   - 3 drives with media and scanning:     ~16  seconds
-pub async fn find_drives(mm: impl MakeMkvCli + std::marker::Send + 'static, scan_mode: ScanMode) -> Result<Vec<OpticalDrive>, String> {
-
+pub async fn find_drives(
+    mm: impl MakeMkvCli + std::marker::Send + 'static,
+    scan_mode: ScanMode,
+) -> Result<Vec<OpticalDrive>, String> {
     let (tx, mut rx) = mpsc::channel::<MakeMkvEvent>(256);
     let start_time = Instant::now();
-    let mut th = spawn(async move {mm.info("disc:-1".to_string(), scan_mode, tx).await});
+    let mut th = spawn(async move { mm.info("disc:-1".to_string(), scan_mode, tx).await });
     let mut result = None;
 
     let mut drives = Vec::new();
@@ -70,7 +72,7 @@ pub async fn find_drives(mm: impl MakeMkvCli + std::marker::Send + 'static, scan
                         } else {
                             // show everything else that remains
                             // (shouldn't print anything)
-                            println!("[makemkv] MSG:{} - {}", msg.code, msg.message);
+                            info!("[makemkv] MSG:{} - {}", msg.code, msg.message);
                         }
                     },
                     MakeMkvEvent::DRV(drv) => {
@@ -119,13 +121,17 @@ pub async fn find_drives(mm: impl MakeMkvCli + std::marker::Send + 'static, scan
 
     match result.expect("`makemkvcon info` failed to run!") {
         Ok(Ok(())) => {
-            info!("find_drives() finished normally after {} seconds. ({} drives found)", elapsed, drives.len());
+            info!(
+                "find_drives() finished normally after {} seconds. ({} drives found)",
+                elapsed,
+                drives.len()
+            );
             Ok(drives)
-        },
+        }
         Ok(Err(makemkv::InfoError::DataError)) => {
             error!("find_drives() failed after {} seconds: DataError", elapsed);
             Err("DataError".to_string())
-        },
+        }
         Err(e) => {
             error!("find_drives() failed after {} seconds: {}", elapsed, e);
             Err("GenericError".to_string())
@@ -133,7 +139,10 @@ pub async fn find_drives(mm: impl MakeMkvCli + std::marker::Send + 'static, scan
     }
 }
 
-pub fn find_matching_drive(drives_have: &[OpticalDrive], drive_want: &PathBuf) -> Option<OpticalDrive> {
+pub fn find_matching_drive(
+    drives_have: &[OpticalDrive],
+    drive_want: &PathBuf,
+) -> Option<OpticalDrive> {
     debug!("find_matching_drives(): drives_have: {:#?}", drives_have);
     debug!("find_matching_drives(): drive_want:  {:#?}", drive_want);
 
@@ -148,7 +157,10 @@ pub fn find_matching_drive(drives_have: &[OpticalDrive], drive_want: &PathBuf) -
     None
 }
 
-pub fn find_matching_drives(drives_have: &[OpticalDrive], drives_want: &[PathBuf]) -> Vec<OpticalDrive> {
+pub fn find_matching_drives(
+    drives_have: &[OpticalDrive],
+    drives_want: &[PathBuf],
+) -> Vec<OpticalDrive> {
     // debug!("find_matching_drives(): drives_have: {:#?}", drives_have);
     // debug!("find_matching_drives(): drives_want: {:#?}", drives_want);
     let mut drives = Vec::new();

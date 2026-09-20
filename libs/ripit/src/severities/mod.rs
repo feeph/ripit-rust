@@ -15,13 +15,14 @@ use log::{debug, error, info, warn};
 // public interface
 // ------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub enum Severity {
     Info,
     Warn,
     Fail,
 }
 
-pub fn default_severity_map() -> HashMap::<u32, Severity> {
+pub fn default_severity_map() -> HashMap<u32, Severity> {
     // MSG:1005 - MakeMKV v1.18.3 win(x64-release) started
     // MSG:1011 - Using LibreDrive mode (v06.3 id=0FA242DD4D0B)
     // MSG:2003 various types of read errors

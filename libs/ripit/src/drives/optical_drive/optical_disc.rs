@@ -59,7 +59,6 @@ pub enum OpticalDisc {
 // augment the enumeration
 
 impl OpticalDisc {
-
     pub fn get_name(&self) -> &str {
         match self {
             Self::Dvd(dvd) => &dvd.name,
@@ -75,11 +74,9 @@ impl OpticalDisc {
             Self::BluRay(_) => "Blu-Ray",
         }
     }
-
 }
 
 impl Display for OpticalDisc {
-
     // provides '.to_string()'
     // <https://doc.rust-lang.org/std/fmt/trait.Display.html>
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
@@ -89,7 +86,6 @@ impl Display for OpticalDisc {
             Self::BluRay(disc) => write!(f, "{} (Blu-Ray)", disc.name),
         }
     }
-
 }
 
 // ------------------------------------------------------------------------
@@ -102,9 +98,9 @@ mod tests {
 
     #[test]
     fn test_format_dvd() {
-        let disc = OpticalDisc::Dvd(Dvd{
+        let disc = OpticalDisc::Dvd(Dvd {
             name: "DVDVolume".to_string(),
-            uid: "deadbeef".to_string(), 
+            uid: "deadbeef".to_string(),
         });
         // ----------------------------------------------------------------
         let computed = disc.to_string();
@@ -115,9 +111,9 @@ mod tests {
 
     #[test]
     fn test_format_hd_dvd() {
-        let disc = OpticalDisc::HdDvd(HdDvd{
+        let disc = OpticalDisc::HdDvd(HdDvd {
             name: "Wrong Horse".to_string(),
-            uid: "cafebabe".to_string(), 
+            uid: "cafebabe".to_string(),
         });
         // ----------------------------------------------------------------
         let computed = disc.to_string();
@@ -128,7 +124,7 @@ mod tests {
 
     #[test]
     fn test_format_bluray() {
-        let disc = OpticalDisc::BluRay(BluRay{
+        let disc = OpticalDisc::BluRay(BluRay {
             name: "Locked Down".to_string(),
             uid: "facefeed".to_string(),
             has_aacs: true,

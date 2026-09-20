@@ -10,7 +10,6 @@
     (hopefully unique) value, e.g. "DVDVolume" becomes "DVDVolume_29615A81".
 */
 
-
 // standard library imports
 use std::path::PathBuf;
 
@@ -26,7 +25,7 @@ use log::{debug, error, info, warn};
 // ------------------------------------------------------------------------
 
 /// provide an Operating System-agnostic way to determine a unique disc id
-/// 
+///
 /// This function does not read the disc's metadata and does not rely on
 /// the volume label that is set during the mastering process. The reason
 /// we need a metadata-independent, unique id is because it is possible

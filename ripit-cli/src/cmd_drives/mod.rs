@@ -59,13 +59,13 @@ pub struct CmdArgs {
     /// Select output format.
     #[arg(short = 'f', long = "output-format", default_value_t, value_enum)]
     output_format: OutputFormat,
-    
+
     #[clap(flatten)]
     global_opts: crate::GlobalOpts,
 }
 
 /// example output:
-/// 
+///
 /// ```TEXT
 /// [DRV:1] /dev/sr2 'BD-RE ASUS SBW-06D5H-U E101 AFDL222859WL'
 ///   'MASTERS OF THE UNIVERSE' (id: 0335ff7020202020) [Blu-Ray] [AACS]
@@ -82,7 +82,9 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
     } else {
         ScanMode::DriveAndDisc
     };
-    let drives_have = find_drives(mm.to_owned(), scan_mode).await.expect("Reading drives should never fail.");
+    let drives_have = find_drives(mm.to_owned(), scan_mode)
+        .await
+        .expect("Reading drives should never fail.");
     let drives_want = args.drives_want;
 
     let drives = find_matching_drives(&drives_have, &drives_want);
@@ -95,7 +97,12 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
             info!("Generating TEXT output.");
             let mut lines = Vec::new();
             for drive in &drives {
-                lines.push(format!("[DRV:{}] {} '{}'", drive.index, drive.device.to_string_lossy(), drive.model));
+                lines.push(format!(
+                    "[DRV:{}] {} '{}'",
+                    drive.index,
+                    drive.device.to_string_lossy(),
+                    drive.model
+                ));
                 // TODO restore drive detection functionality
                 // match &drv.disc_ {
                 //     Disc::NoDisc => {},
@@ -118,15 +125,13 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                 // }
             }
             lines.join("\n")
-        },
+        }
         OutputFormat::Yaml => {
             info!("Generating YAML output.");
-            let wrapped = HashMap::from([
-                ("drives", drives),
-            ]);
+            let wrapped = HashMap::from([("drives", drives)]);
             let yaml_value = serde_yaml::to_value(&wrapped).unwrap();
             serde_yaml::to_string(&yaml_value).unwrap()
-        },
+        }
     };
 
     match args.output_file {
@@ -135,7 +140,7 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
             fs::write(filename, output_str).expect("Writing output file should succeed.");
         }
         None => {
-            println!("{}", output_str);
+            debug!("{}", output_str);
         }
     }
 

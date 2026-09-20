@@ -17,7 +17,7 @@ pub use content_type::ContentType;
 pub struct DrvRecord {
     pub index: u8,
     // 'visible' - set to 1 if drive is present
-    pub drive_status_num: u32,             // numerical representation
+    pub drive_status_num: u32,           // numerical representation
     pub drive_status: Option<DrvStatus>, // parsed value
     // 'enabled' - set to 1 if drive is accessible
     pub is_enabled: u32,

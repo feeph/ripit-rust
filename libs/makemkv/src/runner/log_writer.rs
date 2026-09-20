@@ -26,15 +26,22 @@ impl LogWriter {
     pub async fn new(filename: Option<PathBuf>) -> Self {
         let fh = match filename {
             Some(logfile) => {
-                debug!("Writing MakeMkv's output to file '{}'.", logfile.to_string_lossy());
+                debug!(
+                    "Writing MakeMkv's output to file '{}'.",
+                    logfile.to_string_lossy()
+                );
                 // ensure the parent directory exists
                 match logfile.parent() {
                     Some(parent_dir) => {
                         if !parent_dir.is_dir() {
                             debug!("Creating parent dir '{}'.", parent_dir.to_string_lossy());
-                            std::fs::create_dir_all(parent_dir).expect("Unable to create parent dir!");
+                            std::fs::create_dir_all(parent_dir)
+                                .expect("Unable to create parent dir!");
                         } else {
-                            debug!("Required parent dir '{}' already exists. Good.", parent_dir.to_string_lossy());
+                            debug!(
+                                "Required parent dir '{}' already exists. Good.",
+                                parent_dir.to_string_lossy()
+                            );
                         }
                     }
                     None => {
@@ -49,12 +56,10 @@ impl LogWriter {
                         .write(true)
                         .truncate(true)
                         .open(logfile)
-                        .expect("Failed to open provided file!")
+                        .expect("Failed to open provided file!"),
                 )
-            },
-            None => {
-                None
-            },
+            }
+            None => None,
         };
         Self { fh }
     }
@@ -66,10 +71,8 @@ impl LogWriter {
                 .expect("Failed to write timestamp!");
             fh.write_all(line.as_bytes())
                 .expect("Failed to write log line!");
-            fh.write_all(b"\n")
-                .expect("Failed to write log newline!");
-            fh.flush()
-                .expect("Failed to flush log file!");
+            fh.write_all(b"\n").expect("Failed to write log newline!");
+            fh.flush().expect("Failed to flush log file!");
         }
     }
 }

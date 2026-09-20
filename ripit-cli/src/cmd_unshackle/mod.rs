@@ -20,11 +20,11 @@
 
     ```TEXT
     $ ripit-cli unshackle -O -d /dev/sr1 /dev/sr2 -t /media/image
-    I: Detecting available drives.                                                                                                                                                                         Found 2 drives.                                                                                                                                                                                     [/dev/sr2] Starting backup of DVD 'DVDVolume'.                                                                                                                                                      [/dev/sr1] Starting backup of DVD 'OTAKU_NO_VIDEO'.                                                                                                                                                 
+    I: Detecting available drives.                                                                                                                                                                         Found 2 drives.                                                                                                                                                                                     [/dev/sr2] Starting backup of DVD 'DVDVolume'.                                                                                                                                                      [/dev/sr1] Starting backup of DVD 'OTAKU_NO_VIDEO'.
     ⠹ [disc:0] Copying all files (11%)                  [██░░░░░░░░░░░░░░░░░░] 00:04:13
     ⠸ [disc:0] `--> Copying file (11%)                  [██░░░░░░░░░░░░░░░░░░] 00:03:15
     ⠧ [disc:1] Copying all files (5%)                   [░░░░░░░░░░░░░░░░░░░░] 00:04:09
-    ⠼ [disc:1] `--> Copying file (5%)                   [░░░░░░░░░░░░░░░░░░░░] 00:03:14   
+    ⠼ [disc:1] `--> Copying file (5%)                   [░░░░░░░░░░░░░░░░░░░░] 00:03:14
     ```
 
     A logfile with makemkvcon's output is added to the target directory.
@@ -52,7 +52,6 @@ use ripit::{UnshackleEvent, find_drives, find_matching_drives, unshackle_disc};
 pub struct CmdArgs {
     // Please note:
     // Trailing dots in ///-comments are stripped by clap.
-
     /// Select a drive, e.g. 'D:' or '/dev/sr0' (repeatable)
     /// (implies usage of all drives if none are selected)
     #[arg(short = 'd', long = "drive", num_args = 1..)]
@@ -111,7 +110,9 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
     pt.send_text_message("I: Detecting available drives.");
 
     let scan_mode = ScanMode::DriveAndDisc;
-    let drives_have = find_drives(mm.to_owned(), scan_mode).await.expect("Reading drives should never fail.");
+    let drives_have = find_drives(mm.to_owned(), scan_mode)
+        .await
+        .expect("Reading drives should never fail.");
     if drives_have.is_empty() {
         pt.send_text_message("E: Found no available drives!");
         return exitcode::IOERR;
@@ -125,7 +126,11 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
             .collect::<Vec<_>>();
         device_names.sort();
         let device_names_str = device_names.join(" ");
-        pt.send_text_message(&format!("I: Found {} drives: {}", drives_have.len(), device_names_str));
+        pt.send_text_message(&format!(
+            "I: Found {} drives: {}",
+            drives_have.len(),
+            device_names_str
+        ));
     }
 
     let drives_want = args.drives_want;
@@ -151,18 +156,34 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
     let eject_when_done = args.eject_when_done;
     let mut workers = HashMap::new();
     for drive in drives.extract_if(.., |x| x.has_disc()) {
-        info!("[{}] Creating worker task for `makemkvcon backup`.", drive.device.to_string_lossy());
+        info!(
+            "[{}] Creating worker task for `makemkvcon backup`.",
+            drive.device.to_string_lossy()
+        );
         debug!("drive: {:#?}.", drive);
         let disc = drive.disc.clone().unwrap();
         let disc_name = disc.get_name();
         let disc_type = disc.get_type();
-        pt.send_text_message(&format!("[{}] Starting backup of {} '{}'.", drive.device.to_string_lossy(), disc_type, disc_name));
+        pt.send_text_message(&format!(
+            "[{}] Starting backup of {} '{}'.",
+            drive.device.to_string_lossy(),
+            disc_type,
+            disc_name
+        ));
         let mm_mkv = mm.clone();
         let source_mkv = drive.clone();
         let target_mkv = target.clone();
         let tx_tmp = tx.clone();
         let th_mkv = spawn(async move {
-            unshackle_disc(mm_mkv, source_mkv, target_mkv, allow_overwrite, eject_when_done, tx_tmp).await
+            unshackle_disc(
+                mm_mkv,
+                source_mkv,
+                target_mkv,
+                allow_overwrite,
+                eject_when_done,
+                tx_tmp,
+            )
+            .await
         });
 
         workers.insert(drive, th_mkv);
@@ -179,7 +200,6 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
     let mut jobs_done = 0;
     let mut jobs_failed = 0;
     loop {
-
         // TODO  test if new workers need to be spawned
 
         tokio::select! {
@@ -304,7 +324,6 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
         // test if the thread is still running or has finished and provided a result
         debug!("workers (pre-cleanup):  {}", workers.len());
         for (drive, worker) in workers.extract_if(|_, worker| worker.is_finished()) {
-
             // TODO do we need to drain potentially remaining events?
             match worker.await.unwrap() {
                 Ok(result) => {
@@ -313,15 +332,22 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                     let size_gb = (result.fs_size as f32) / 1024u32.pow(3) as f32;
                     let write_rate = size_mb / (elapsed as f32);
                     let device_id = drive.device.to_string_lossy();
-                    let message = format!("[{}] Backup task completed backup after {} seconds. ({:.1}GiB written, {:.1}MiB/s)", device_id, elapsed, size_gb, write_rate);
+                    let message = format!(
+                        "[{}] Backup task completed backup after {} seconds. ({:.1}GiB written, {:.1}MiB/s)",
+                        device_id, elapsed, size_gb, write_rate
+                    );
                     pt.send_text_message(&message);
                     jobs_done += 1;
 
                     // update total bytes
                     // progress.on_backup_completed(result.fs_size);
-                },
+                }
                 Err(error) => {
-                    let message = format!("[{}] Backup task failed: {:#?}", drive.device.to_string_lossy(), error.reason);
+                    let message = format!(
+                        "[{}] Backup task failed: {:#?}",
+                        drive.device.to_string_lossy(),
+                        error.reason
+                    );
                     pt.send_text_message(&message);
                     jobs_failed += 1;
                 }
@@ -485,7 +511,7 @@ pub async fn run_old(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
     //             debug!("Event collection timeout reached.");
     //         },
     //     }
-        
+
     //     debug!("[unshackle] Checking drive readiness.");
     //     if workers.is_empty() || workers.len() < drives_want.len() {
     //         // no active workers, need to manually trigger a drive update
@@ -555,7 +581,7 @@ pub async fn run_old(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
     //                                     ripit::eject_medium(&PathBuf::from(device_name));
     //                                 }
     //                                 workers_failed += 1;
-    //                             } 
+    //                             }
     //                         },
     //                         Err(UnshackleError::LogError(e)) => {
     //                             error!("[{}] {}.", device_name, e);
@@ -641,4 +667,3 @@ pub async fn run_old(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
 // ------------------------------------------------------------------------
 
 // <none>
-

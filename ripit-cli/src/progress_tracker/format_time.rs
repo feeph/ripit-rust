@@ -17,13 +17,18 @@
 
 /// Format time as MM:SS or HH:MM:SS
 pub fn format_time(secs: u64) -> String {
-    format!("{:02}:{:02}:{:02}", secs / 3600, (secs % 3600) / 60, secs % 60)
+    format!(
+        "{:02}:{:02}:{:02}",
+        secs / 3600,
+        (secs % 3600) / 60,
+        secs % 60
+    )
 }
 
 pub fn format_time_with_units(secs: u64) -> String {
     if secs >= 3600 {
         format!("{}h {}m {}s", secs / 3600, (secs % 3600) / 60, secs % 60)
-    } else if  secs >= 60 {
+    } else if secs >= 60 {
         format!("{}m {}s", secs / 60, secs % 60)
     } else {
         format!("{}s", secs)

@@ -12,14 +12,20 @@ PRGC:<code>,<id>,<name>
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProgressCurrentRecord {
+    pub source: String,
     pub code: u32,
     pub id: u32,
     pub name: String,
 }
 
 impl ProgressCurrentRecord {
-    pub fn new(code: u32, id: u32, name: &str) -> Self {
-        Self { code, id, name: name.to_owned() }
+    pub fn new(source: &str, code: u32, id: u32, name: String) -> Self {
+        Self {
+            source: source.to_string(),
+            code,
+            id,
+            name,
+        }
     }
 }
 
@@ -40,12 +46,15 @@ mod tests {
 
     #[test]
     fn test_progress_current_new() {
+        let source = "source_name".to_string();
+        let name = "Scanning contents".to_string();
         // ----------------------------------------------------------------
-        let computed = ProgressCurrentRecord::new(3120, 1, "Scanning contents");
+        let computed = ProgressCurrentRecord::new(&source, 3120, 1, name.clone());
         let expected = ProgressCurrentRecord {
+            source,
             code: 3120,
             id: 1,
-            name: "Scanning contents".to_string(),
+            name,
         };
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);

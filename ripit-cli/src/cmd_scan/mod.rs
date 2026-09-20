@@ -43,7 +43,7 @@ pub struct CmdArgs {
 
 pub fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
     if args.verbose {
-        println!("[verbose] scan {}", args.source);
+        debug!("[verbose] scan {}", args.source);
     }
 
     let scan_result = match scan_disc(makemkvcon_bin, &args.source) {
@@ -81,7 +81,7 @@ pub fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
             }
         }
     } else {
-        println!("{}", output);
+        debug!("{}", output);
     }
 
     if scan_result.issues == 0 {

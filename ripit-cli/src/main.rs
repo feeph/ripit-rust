@@ -10,9 +10,9 @@ mod cmd_drives;
 mod cmd_extract;
 // mod cmd_scan;
 mod cmd_unshackle;
-mod progress_tracker;
 mod logging;
 mod os_utils;
+mod progress_tracker;
 
 use clap::{Args, Parser, Subcommand};
 
@@ -23,7 +23,6 @@ enum Cmd {
 
     // #[command(about = "scan the medium and show its content")]
     // Scan(cmd_scan::CmdArgs),
-
     #[command(
         about = "free your beloved movies and series from their physical constraints",
         after_help = UNSHACKLE_AFTER_HELP,
@@ -41,7 +40,12 @@ enum Cmd {
 struct GlobalOpts {
     // 'RUST_LOG' would work without configuring it here, but let's be
     // user-friendly and explicitly spell out the environment variable
-    #[arg(long = "log-level", env = "RUST_LOG", global = true, help = "Set logging level (debug, info, warn, error). Default is 'warn'")]
+    #[arg(
+        long = "log-level",
+        env = "RUST_LOG",
+        global = true,
+        help = "Set logging level (debug, info, warn, error). Default is 'warn'"
+    )]
     log_level: Option<log::Level>,
 }
 
@@ -86,7 +90,6 @@ async fn main() {
 
     std::process::exit(exit_code);
 }
-
 
 // Using global static strings primarily because the content is sensitive
 // to indentation (any leading whitespace is going to be visible in the

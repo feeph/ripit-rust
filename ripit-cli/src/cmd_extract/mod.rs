@@ -44,7 +44,7 @@
 */
 
 // standard library imports
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 // third-party imports
@@ -59,7 +59,10 @@ use tokio::time::{Duration, sleep};
 
 // crate-provided imports
 use crate::progress_tracker::ProgressTracker;
-use ripit::{ExtractEvent, OpticalDrive, ScanMode, extract_from_drive, extract_from_image, find_drives, find_matching_drive, find_matching_drives};
+use ripit::{
+    ExtractEvent, OpticalDrive, ScanMode, extract_from_drive, extract_from_image, find_drives,
+    find_matching_drive, find_matching_drives,
+};
 
 // ------------------------------------------------------------------------
 // public interface
@@ -77,7 +80,6 @@ enum OutputFormat {
 pub struct CmdArgs {
     // Please note:
     // Trailing dots in ///-comments are stripped by clap.
-
     /// Select a drive, e.g. 'D:' or '/dev/sr0' (repeatable)
     /// (implies usage of all drives if none are selected)
     #[arg(short = 'd', long = "drive", num_args = 1..)]
@@ -98,13 +100,17 @@ pub struct CmdArgs {
     // /// Write MKV files to a disc-specific directory at this location
     // #[arg(short = 'r', long = "target-root", default_value = ".", value_hint = ValueHint::DirPath)]
     // target: std::path::PathBuf,
-
     /// Extract one or more specific title(s) identified by their index [defaults to 'all']
     #[arg(short = 'T', long = "title", value_name = "TITLE")]
     titles: Vec<usize>,
 
     /// Ignore all titles shorter than x seconds (env: MIN_LENGTH)
-    #[arg(short = 'L', long = "min-length", default_value = "0", env = "MIN_LENGTH")]
+    #[arg(
+        short = 'L',
+        long = "min-length",
+        default_value = "0",
+        env = "MIN_LENGTH"
+    )]
     min_length: usize,
 
     /// Allow overwriting existing an already existing directory
@@ -122,7 +128,7 @@ pub struct CmdArgs {
     /// Select output format
     #[arg(short = 'f', long = "output-format", default_value_t, value_enum)]
     output_format: OutputFormat,
-    
+
     #[clap(flatten)]
     global_opts: crate::GlobalOpts,
     // #[arg(long = "log-level", help = "Set logging level (debug, info, warn, error). Default is 'warn'")]
@@ -135,7 +141,7 @@ enum SourceType {
 }
 
 /// example output:
-/// 
+///
 /// ```TEXT
 /// <...>
 /// ```
@@ -155,7 +161,11 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
 
     // if no titles are specified use the keyword "all"
     let titles: Vec<String> = if !args.titles.is_empty() {
-        args.titles.clone().iter().map(|title| title.to_string()).collect()
+        args.titles
+            .clone()
+            .iter()
+            .map(|title| title.to_string())
+            .collect()
     } else {
         vec!["all".to_string()]
     };
@@ -180,17 +190,25 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
             if filename.is_file() || filename.is_dir() {
                 // file or directory: assume image
                 // -> use the filename (without extension) as disc's name
-                let disc_name: String = filename.file_stem().expect("not a filename?").to_string_lossy().to_string();
+                let disc_name: String = filename
+                    .file_stem()
+                    .expect("not a filename?")
+                    .to_string_lossy()
+                    .to_string();
                 sources.push((SourceType::Image(filename), disc_name));
-
             } else {
-                let message = format!("Image {:#?} is neither a file or directory. Ignoring.", filename);
+                let message = format!(
+                    "Image {:#?} is neither a file or directory. Ignoring.",
+                    filename
+                );
                 pt.send_text_message(&message);
             }
         }
     } else {
         let scan_mode = ScanMode::DriveAndDisc;
-        let drives_have = find_drives(mm.to_owned(), scan_mode).await.expect("Reading drives should never fail.");
+        let drives_have = find_drives(mm.to_owned(), scan_mode)
+            .await
+            .expect("Reading drives should never fail.");
         if drives_have.is_empty() {
             pt.send_text_message("E: Found no available drives!");
             return exitcode::IOERR;
@@ -204,7 +222,11 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                 .collect::<Vec<_>>();
             device_names.sort();
             let device_names_str = device_names.join(" ");
-            pt.send_text_message(&format!("I: Found {} drives: {}", drives_have.len(), device_names_str));
+            pt.send_text_message(&format!(
+                "I: Found {} drives: {}",
+                drives_have.len(),
+                device_names_str
+            ));
         }
 
         let drives_want = args.drives_want;
@@ -219,9 +241,12 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                 Some(disc) => {
                     let disc_name = disc.get_name().to_string();
                     sources.push((SourceType::Drive(drive), disc_name));
-                },
+                }
                 None => {
-                    let message = format!("I: Unable to detect disc in drive {:#?}. Ignoring.", drive.device);
+                    let message = format!(
+                        "I: Unable to detect disc in drive {:#?}. Ignoring.",
+                        drive.device
+                    );
                     pt.send_text_message(&message);
                 }
             };
@@ -250,7 +275,7 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                 match check_directory_and_delete(&target_mkv) {
                     Ok(msg) => {
                         pt.send_text_message(&msg);
-                    },
+                    }
                     Err(err) => {
                         pt.send_text_message(&err);
                         return exitcode::OSFILE;
@@ -273,14 +298,28 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
         // spawn the source-specific extraction process
         let th_mkv = match source_type {
             SourceType::Drive(drive) => {
-                pt.send_text_message(&format!("I: Using optical drive {:#?} ({}).", drive.device, disc_name));
+                pt.send_text_message(&format!(
+                    "I: Using optical drive {:#?} ({}).",
+                    drive.device, disc_name
+                ));
 
                 spawn(async move {
-                    extract_from_drive(mm_cpy, drive, target_cpy, titles_cpy, eject_when_done, tx_cpy).await
+                    extract_from_drive(
+                        mm_cpy,
+                        drive,
+                        target_cpy,
+                        titles_cpy,
+                        eject_when_done,
+                        tx_cpy,
+                    )
+                    .await
                 })
-            },
+            }
             SourceType::Image(image) => {
-                pt.send_text_message(&format!("I: Using disc image {:#?} ({}).", image, disc_name));
+                pt.send_text_message(&format!(
+                    "I: Using disc image {:#?} ({}).",
+                    image, disc_name
+                ));
 
                 spawn(async move {
                     extract_from_image(mm_cpy, image, target_cpy, titles_cpy, tx_cpy).await
@@ -292,13 +331,9 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
 
     // monitor progress of worker tasks and terminate
     // parse incoming events until the spawned task finishes
-    let mut stages: HashMap<String, HashMap<String, f32>> = HashMap::new();
     let mut events = Vec::new();
-    let batch_size = 32;
-    // let mut failed = 0usize;
-    let mut jobs_done = 0;
-    let mut jobs_failed = 0;
-    // let result;
+    let batch_size = 128;
+    let mut ep = EventParser::new();
     loop {
         tokio::select! {
             // batched processing of generated events to reduce overhead
@@ -310,115 +345,19 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
             // ⠦ [/dev/sr1] Copying all files (0%)  [░░░░░░░░░░░░░░░░░░░░] 00:00:25
             //                                                             ^^^^^^^^
             _ = rx.recv_many(&mut events, batch_size) => {
-                // parse generated events
-                for event in events.drain(..) {
-                    match event {
-                        ExtractEvent::MsgInfo(_msg) => {
-                            // info!("[{}] MSG:{} - {}", msg.device.to_string_lossy(), msg.message.code, msg.message.message);
-                            // println!("[{}] {}", msg.device.to_string_lossy(), msg.message.message);
-                        },
-                        ExtractEvent::MsgWarn(msg) => {
-                            pt.send_text_message(&format!("[makemkv] W: MSG:{} - {}", msg.message.code, msg.message.message));
-                        },
-                        ExtractEvent::MsgFail(msg) => {
-                            pt.send_text_message(&format!("[makemkv] E: MSG:{} - {}", msg.message.code, msg.message.message));
-                        },
-                        ExtractEvent::ProgressT(pu) => {
-                            // "Scanning CD-ROM devices" / "Copying all files"
-                            // There should be exactly two events per backup
-                            // job: scanning and copying.
-
-                            // create progress bar for current stage
-                            let pb_prgt_id = pu.get_device_id();
-                            let device_name = pu.source.clone();
-                            let stage_name = pu.get_stage_name();
-                            pt.create_progress_bar(&pb_prgt_id, &device_name, &stage_name);
-                        },
-                        ExtractEvent::ProgressC(pu) => {
-                            // "Scanning contents" / "Copying file" / ...
-                            // For DVDs and HD-DVDs there's exactly one
-                            // "Copying file" task (the ISO image), for
-                            // Blu-Rays there might easily be a thousand)
-
-                            // create progress bar for current task
-                            let pb_prgt_id = pu.get_device_id();
-                            let pb_prgc_id = pu.get_stage_id();
-                            let device_name = pu.source.clone();
-                            let task_name = pu.get_task_name();
-                            pt.create_progress_bar_after(&pb_prgc_id, &device_name, &task_name, &pb_prgt_id).unwrap();
-                        },
-                        ExtractEvent::ProgressValue(pu) => {
-                            // "Processing title sets"
-                            // "Scanning contents"
-                            let device_name = pu.source.clone();
-                            let disc_name = pu.disc.get_name();
-                            let stage_name = pu.get_stage_name(); // reported as 'total'
-                            let task_name = pu.get_task_name(); // reported as 'current'
-                            let device_stage = stages.entry(device_name.clone()).or_insert(HashMap::from([(stage_name.clone(), f32::NAN)]));
-                            let task_pct_old = device_stage.get(&stage_name).unwrap_or(&f32::NAN);
-                            let task_pct_new = pu.prgc.percentage;
-
-                            debug!("[{}] {}: old: {:6.2}% new: {:6.2}%", device_name, task_name, task_pct_old, task_pct_new);
-
-                            // throttle log output: notify only if stage or
-                            // percentage has changed more than 5%
-                            // (prevent log-flooding)
-                            if task_pct_old.is_nan() || task_pct_new >= task_pct_old + 5.0 {
-                                info!("[{}] {}: {:3.0}% (done: {}, failed: {})", device_name, stage_name, task_pct_new, jobs_done, jobs_failed);
-                            }
-
-                            // throttle progress bars: notify only if stage or
-                            // percentage has changed more than 0.1%
-                            // (indicatif handles fine-grained throttling)
-                            if task_pct_old.is_nan() || task_pct_new >= task_pct_old + 0.1 {
-                                let pb_prgt_id = pu.get_device_id();
-                                let pb_prgc_id = pu.get_stage_id();
-
-                                // modify the task name to make it more
-                                // obvious how stage and task are related:
-                                // ----------------------------------------
-                                // ⠸ [/dev/sr0] Copying all files (6%)    [█░░░░░░░░░░░░░░░░░░░] 00:03:25
-                                // ⠹ [/dev/sr0] `--> Copying file (25%)   [████░░░░░░░░░░░░░░░░] 00:00:12
-                                // ----------------------------------------
-                                let task_name_mod = format!("`--> {}", task_name);
-
-                                pt.update_progress_bar(&pb_prgt_id, disc_name, &stage_name, pu.prgt.percentage).unwrap();
-                                pt.update_progress_bar(&pb_prgc_id, disc_name, &task_name_mod, pu.prgc.percentage).unwrap();
-                            }
-
-                            // remove the progress bar after they reached 100%
-                            if pu.prgc.percentage >= 100.0 {
-                                let pb_prgc_id = pu.get_stage_id();
-                                pt.clear_progress_bar(&pb_prgc_id).unwrap();
-                            }
-                            if pu.prgt.percentage >= 100.0 {
-                                let pb_prgt_id = pu.get_device_id();
-                                pt.clear_progress_bar(&pb_prgt_id).unwrap();
-                            }
-                        },
-                    }
-                }
+                // at least one spawned process is still running
+                // --> try to parse generated events
+                ep.parse_events(&mut events, &mut pt);
             },
-            // <legacy code>
-            // record completion and drain buffered events before returning
-            // res = &mut th, if result.is_none() => {
-            //     result = Some(res);
-            // },
-            // res = &mut th_mkv => {
-            //     result = res;
-            //     break;
-            // }
-            // </legacy code>
-            else => {
-                pt.send_text_message("tokio::select!(): break triggered");
-                break;
-            },
+            _ = sleep(Duration::from_millis(500)) => {
+                // timeout reached, do something else
+            }
         }
 
-        // test if the thread is still running or has finished and provided a result
+        // test if the worker threads are still running or if a thread has
+        // finished and provided a result
         debug!("workers (pre-cleanup):  {}", workers.len());
         for (disc_name, worker) in workers.extract_if(|_, worker| worker.is_finished()) {
-
             // TODO do we need to drain potentially remaining events?
             match worker.await.unwrap() {
                 Ok(result) => {
@@ -426,21 +365,28 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                     let size_mb = (result.fs_size as f32) / 1024u32.pow(2) as f32;
                     let size_gb = (result.fs_size as f32) / 1024u32.pow(3) as f32;
                     let write_rate = size_mb / (elapsed as f32);
-                    let message = format!("[{}] Extraction completed backup after {} seconds. ({:.1}GiB written, {:.1}MiB/s)", disc_name, elapsed, size_gb, write_rate);
+                    let message = format!(
+                        "Extraction of '{}' completed backup after {} seconds. ({:.1}GiB, {:.1}MiB/s)",
+                        disc_name, elapsed, size_gb, write_rate
+                    );
                     pt.send_text_message(&message);
-                    jobs_done += 1;
+                    ep.jobs_done += 1;
 
                     // update total bytes
                     // progress.on_backup_completed(result.fs_size);
-                },
+                    let pb_prgt_id = format!("{}_prgt", result.source);
+                    let pb_prgc_id = format!("{}_prgc", result.source);
+                    pt.clear_progress_bar(&pb_prgt_id).unwrap();
+                    pt.clear_progress_bar(&pb_prgc_id).unwrap();
+                }
                 Err(error) => {
                     let message = format!("[{}] Extraction failed: {:#?}", disc_name, error.reason);
                     pt.send_text_message(&message);
-                    jobs_failed += 1;
+                    ep.jobs_failed += 1;
                 }
             }
         }
-        // after this loop has run:
+        // after this for-loop has run:
         // - 'workers' contains active threads
         // - 'drives_done' contains drives with successful backup
         // - 'drives_failed' contains drives with failed backup
@@ -471,19 +417,31 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
         // ----------------------------------------------------------------
         if workers.is_empty() {
             break;
-        } else {
-            sleep(Duration::from_millis(500)).await;
         }
     }
 
+    // process remaining events to ensure the queue is empty
+    let remaining = rx.len();
+    debug!(
+        "run(): Threads have finished. Draining remaining {} events.",
+        remaining
+    );
+    if remaining > 0 {
+        let _ = rx.recv_many(&mut events, remaining).await;
+        ep.parse_events(&mut events, &mut pt);
+    }
+
+    // ep.finalize(&mut pt);
+
+    // sanity check: this must never trigger
     if !rx.is_empty() {
-        error!("Receiver queue contains {} messages!", rx.len());
-        while let Some(msg) = rx.recv().await {
-            error!("{:#?}", msg);
-        }
+        panic!(
+            "Internal error: Receiver queue still contains {} messages!",
+            rx.len()
+        );
     }
 
-    if jobs_failed == 0 {
+    if ep.jobs_failed == 0 {
         exitcode::OK
     } else {
         exitcode::IOERR
@@ -538,7 +496,7 @@ fn check_directory_and_delete(directory: &PathBuf) -> Result<String, String> {
                 } else {
                     non_mkv += 1;
                 }
-            },
+            }
             Err(_e) => {
                 unknown += 1;
             }
@@ -547,7 +505,10 @@ fn check_directory_and_delete(directory: &PathBuf) -> Result<String, String> {
 
     // deletion can be dangerous - ask user for permission
     if unknown > 0 {
-        let error = format!("E: Directory {:#?} contains unexpected files! Unable to proceed.", directory);
+        let error = format!(
+            "E: Directory {:#?} contains unexpected files! Unable to proceed.",
+            directory
+        );
         return Err(error);
     } else if non_mkv > 0 {
         // directory contains non-MKV files
@@ -563,7 +524,10 @@ fn check_directory_and_delete(directory: &PathBuf) -> Result<String, String> {
             // user has confirmed
             // --> safe to delete
         } else {
-            let error = format!("E: User denied permission to delete directory {:#?}! Unable to proceed.", directory);
+            let error = format!(
+                "E: User denied permission to delete directory {:#?}! Unable to proceed.",
+                directory
+            );
             return Err(error);
         }
     } else if mkv_files > 0 {
@@ -576,12 +540,181 @@ fn check_directory_and_delete(directory: &PathBuf) -> Result<String, String> {
 
     match std::fs::remove_dir_all(directory) {
         Ok(_) => {
-            let msg = format!("I: Deleted existing directory {:#?}. ({} MKV files, {} other).", directory, mkv_files, non_mkv);
+            let msg = format!(
+                "I: Deleted existing directory {:#?}. ({} MKV files, {} other).",
+                directory, mkv_files, non_mkv
+            );
             Ok(msg)
-        },
+        }
         Err(e) => {
             let error = format!("E: Unable to delete directory {:#?}: {:#?}", directory, e);
             Err(error)
+        }
+    }
+}
+
+struct EventParser {
+    pub jobs_done: usize,
+    pub jobs_failed: usize,
+    stages: HashMap<String, HashMap<String, f32>>,
+    pb_ids: HashSet<String>,
+}
+
+impl EventParser {
+    fn new() -> Self {
+        EventParser {
+            jobs_done: 0,
+            jobs_failed: 0,
+            stages: HashMap::new(),
+            pb_ids: HashSet::new(),
+        }
+    }
+
+    fn parse_events(&mut self, events: &mut Vec<ExtractEvent>, pt: &mut ProgressTracker) {
+        for event in events.drain(..) {
+            match event {
+                ExtractEvent::MsgInfo(msg) => {
+                    info!(
+                        "[{}] MSG:{} - {}",
+                        msg.source, msg.message.code, msg.message.message
+                    );
+                    // pt.send_text_message(&format!("[makemkv] I: MSG:{} - {}", msg.message.code, msg.message.message));
+                }
+                ExtractEvent::MsgWarn(msg) => {
+                    warn!(
+                        "[{}] MSG:{} - {}",
+                        msg.source, msg.message.code, msg.message.message
+                    );
+                    pt.send_text_message(&format!(
+                        "[makemkv] W: MSG:{} - {}",
+                        msg.message.code, msg.message.message
+                    ));
+                }
+                ExtractEvent::MsgFail(msg) => {
+                    error!(
+                        "[{}] MSG:{} - {}",
+                        msg.source, msg.message.code, msg.message.message
+                    );
+                    pt.send_text_message(&format!(
+                        "[makemkv] E: MSG:{} - {}",
+                        msg.message.code, msg.message.message
+                    ));
+                }
+                ExtractEvent::ProgressT(pu) => {
+                    // "Scanning CD-ROM devices" / "Copying all files"
+                    // There should be exactly two events per backup
+                    // job: scanning and copying.
+
+                    // create progress bar for current stage
+                    let pb_prgt_id = format!("{}_prgt", pu.source);
+                    let pb_prgc_id = format!("{}_prgc", pu.source);
+                    if !self.pb_ids.contains(&pb_prgt_id) {
+                        debug!("Create PRGT progress bar for '{}'.", pb_prgt_id);
+                        let device_name = pu.source.clone();
+                        let stage_name = pu.get_stage_name();
+                        pt.create_progress_bar(&pb_prgt_id, &device_name, &stage_name);
+
+                        self.pb_ids.insert(pb_prgt_id.clone());
+                    }
+                    if !self.pb_ids.contains(&pb_prgc_id) {
+                        debug!("Create PRGC progress bar for '{}'.", pb_prgc_id);
+                        let device_name = pu.source.clone();
+                        pt.create_progress_bar_after(
+                            &pb_prgc_id,
+                            &device_name,
+                            "Waiting...",
+                            &pb_prgt_id,
+                        )
+                        .unwrap();
+
+                        self.pb_ids.insert(pb_prgc_id.clone());
+                    }
+                }
+                ExtractEvent::ProgressC(pu) => {
+                    // "Scanning contents" / "Copying file" / ...
+                    // For DVDs and HD-DVDs there's exactly one
+                    // "Copying file" task (the ISO image), for
+                    // Blu-Rays there might easily be a thousand)
+
+                    // create progress bar for current task
+                    let pb_prgt_id = format!("{}_prgt", pu.source);
+                    let pb_prgc_id = format!("{}_prgc", pu.source);
+                    if !self.pb_ids.contains(&pb_prgc_id) {
+                        debug!("Create PRGC progress bar for '{}'.", pb_prgc_id);
+                        let device_name = pu.source.clone();
+                        let task_name = pu.get_task_name();
+                        pt.create_progress_bar_after(
+                            &pb_prgc_id,
+                            &device_name,
+                            &task_name,
+                            &pb_prgt_id,
+                        )
+                        .unwrap();
+
+                        self.pb_ids.insert(pb_prgc_id);
+                    }
+                }
+                ExtractEvent::ProgressValue(pu) => {
+                    // "Processing title sets"
+                    // "Scanning contents"
+                    let device_name = pu.source.clone();
+                    let disc_name = pu.disc.get_name();
+                    let stage_name = pu.get_stage_name(); // reported as 'total'
+                    let task_name = pu.get_task_name(); // reported as 'current'
+                    let device_stage = self
+                        .stages
+                        .entry(device_name.clone())
+                        .or_insert(HashMap::from([(stage_name.clone(), f32::NAN)]));
+                    let task_pct_old = device_stage.get(&stage_name).unwrap_or(&f32::NAN);
+                    let task_pct_new = pu.prgc.percentage;
+
+                    debug!(
+                        "[{}] {}: old: {:6.2}% new: {:6.2}%",
+                        device_name, task_name, task_pct_old, task_pct_new
+                    );
+
+                    // throttle log output: notify only if stage or
+                    // percentage has changed more than 5%
+                    // (prevent log-flooding)
+                    if task_pct_old.is_nan() || task_pct_new >= task_pct_old + 5.0 {
+                        info!(
+                            "[{}] {}: {:3.0}% (done: {}, failed: {})",
+                            device_name, stage_name, task_pct_new, self.jobs_done, self.jobs_failed
+                        );
+                    }
+
+                    // throttle progress bars: notify only if stage or
+                    // percentage has changed more than 0.1%
+                    // (indicatif handles fine-grained throttling)
+                    if task_pct_old.is_nan() || task_pct_new >= task_pct_old + 0.1 {
+                        let pb_prgt_id = format!("{}_prgt", pu.source);
+                        let pb_prgc_id = format!("{}_prgc", pu.source);
+
+                        // modify the task name to make it more
+                        // obvious how stage and task are related:
+                        // ----------------------------------------
+                        // ⠸ [/dev/sr0] Copying all files (6%)    [█░░░░░░░░░░░░░░░░░░░] 00:03:25
+                        // ⠹ [/dev/sr0] `--> Copying file (25%)   [████░░░░░░░░░░░░░░░░] 00:00:12
+                        // ----------------------------------------
+                        let task_name_mod = format!("`--> {}", task_name);
+
+                        pt.update_progress_bar(
+                            &pb_prgt_id,
+                            disc_name,
+                            &stage_name,
+                            pu.prgt.percentage,
+                        )
+                        .unwrap();
+                        pt.update_progress_bar(
+                            &pb_prgc_id,
+                            disc_name,
+                            &task_name_mod,
+                            pu.prgc.percentage,
+                        )
+                        .unwrap();
+                    }
+                }
+            }
         }
     }
 }

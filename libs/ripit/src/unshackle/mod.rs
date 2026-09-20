@@ -89,7 +89,11 @@ pub async fn unshackle_disc(
     eject_when_done: bool,
     tx: Sender<UnshackleEvent>,
 ) -> Result<UnshackleResult, UnshackleError> {
-    info!("unshackle_disc(): {} -> {}", drive.device.to_string_lossy(), target.to_string_lossy());
+    info!(
+        "unshackle_disc(): {} -> {}",
+        drive.device.to_string_lossy(),
+        target.to_string_lossy()
+    );
 
     let source_mkv = format!("disc:{}", drive.index);
     let source_upd = source_mkv.clone();
@@ -105,35 +109,40 @@ pub async fn unshackle_disc(
         Some(disc) => disc,
         None => {
             // makes no sense to continue without a disc
-            return Err(
-                UnshackleError {
-                    reason: UnshackleErrorReason::NoDisc,
-                    elapsed_secs: 0,
-                }
-            )
-        },
+            return Err(UnshackleError {
+                reason: UnshackleErrorReason::NoDisc,
+                elapsed_secs: 0,
+            });
+        }
     };
 
     let filename = match &disc {
         OpticalDisc::Dvd(x) => {
             format!("{}_{}.iso", x.name, x.uid)
-        },
+        }
         OpticalDisc::HdDvd(x) => {
             format!("{}_{}.iso", x.name, x.uid)
-        },
+        }
         OpticalDisc::BluRay(x) => {
             format!("{}_{}", x.name, x.uid)
-        },
+        }
     };
     info!("unshackle_disc(): filename {}", filename);
 
     let target_mkv = target.join(filename);
     let target_upd = target_mkv.to_string_lossy().to_string();
 
-    info!("unshackle_disc(): {} -> {}", source_mkv, target_mkv.to_string_lossy());
+    info!(
+        "unshackle_disc(): {} -> {}",
+        source_mkv,
+        target_mkv.to_string_lossy()
+    );
 
     if allow_overwrite && target_mkv.exists() {
-        info!("Found existing backup file '{}'.", target_mkv.to_string_lossy());
+        info!(
+            "Found existing backup file '{}'.",
+            target_mkv.to_string_lossy()
+        );
         if target_mkv.is_dir() {
             info!(
                 "[{}] Removing existing directory '{}'.",
@@ -168,7 +177,8 @@ pub async fn unshackle_disc(
 
     let start_time = Instant::now();
     let mut th_mkv = spawn(async move {
-        mm.backup(source_mkv, target_mkv_cpy, scan_mode, tx_mkv, logfile_mkv).await
+        mm.backup(source_mkv, target_mkv_cpy, scan_mode, tx_mkv, logfile_mkv)
+            .await
     });
 
     // PRGT and PRGC always come before PRGV
@@ -234,7 +244,7 @@ pub async fn unshackle_disc(
                                 };
                             },
                             // MSG:5069 - Backup failed
-                            // MSG:5080 - Backup failed.                            
+                            // MSG:5080 - Backup failed.
                             5069 | 5080 => {
                                 if backup_state == BackupState::Success {
                                     // sanity check failed
@@ -298,7 +308,7 @@ pub async fn unshackle_disc(
                         // update 'progress current' values
                         pu.prgt.percentage = 100.0 * (prgv.total as f32) / (prgv.maximum as f32);
                         pu.prgc.percentage = 100.0 * (prgv.current as f32) / (prgv.maximum as f32);
-                        
+
                         // send event with updated values
                         tx.send(UnshackleEvent::ProgressValue(pu.clone())).await.unwrap();
                     },
@@ -324,12 +334,21 @@ pub async fn unshackle_disc(
             // be a failure in disguise. Let's check in detail.
             match backup_state {
                 BackupState::Running => {
-                    error!("`makemkvcon backup` has run but didn't send MSG:5069, MSG:5070, MSG:5080 or MSG:5081!");
-                    error!("Something is seriously wrong, please check logfile '{}'.", logfile.to_string_lossy());
+                    error!(
+                        "`makemkvcon backup` has run but didn't send MSG:5069, MSG:5070, MSG:5080 or MSG:5081!"
+                    );
+                    error!(
+                        "Something is seriously wrong, please check logfile '{}'.",
+                        logfile.to_string_lossy()
+                    );
                     err_reason = UnshackleErrorReason::BackupFailed;
-                },
+                }
                 BackupState::Success => {
-                    debug!("Completed backup of disc in drive '{}' after {} seconds.", drive.device.to_string_lossy(), elapsed);
+                    debug!(
+                        "Completed backup of disc in drive '{}' after {} seconds.",
+                        drive.device.to_string_lossy(),
+                        elapsed
+                    );
                     if eject_when_done {
                         debug!("Ejecting disc.");
                         drive.eject_disc();
@@ -339,32 +358,35 @@ pub async fn unshackle_disc(
                     let fs_size = calculate_filesystem_size(&target_mkv);
                     let result = UnshackleResult {
                         elapsed_secs: elapsed,
-                        fs_size
+                        fs_size,
                     };
                     return Ok(result);
-                },
+                }
                 BackupState::Failure => {
                     debug!("Backup task failed after {} seconds. (1)", elapsed);
                     err_reason = UnshackleErrorReason::BackupFailed;
-                },
+                }
                 BackupState::Unknown => {
                     error!("`makemkvcon backup` has run and claimed both success and failure?!");
-                    error!("Something is seriously wrong, please check logfile '{}'.", logfile.to_string_lossy());
+                    error!(
+                        "Something is seriously wrong, please check logfile '{}'.",
+                        logfile.to_string_lossy()
+                    );
                     err_reason = UnshackleErrorReason::UnknownResult;
                 }
             }
-        },
+        }
         Ok(Err(makemkv::BackupError::DataError)) => {
             // it's unclear under which conditions this could happen
             debug!("Backup task failed after {} seconds. (DataError)", elapsed);
             err_reason = UnshackleErrorReason::InternalError;
-        },
+        }
         Err(_e) => {
             // something went seriously wrong, potentially a general issue
             // with the child process, e.g. unable to execute the binary
             debug!("unshackle_disc() encountered an issue with makemkvcon's child process.");
             err_reason = UnshackleErrorReason::InternalError;
-        },
+        }
     }
 
     // update device state and return Err()

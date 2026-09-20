@@ -35,7 +35,7 @@
 
     "PRGT" can be considered the current stage while "PRGC" is a task
     within that stage.
-    
+
     When running `makemkvcon backup` the relevant stages and tasks are:
 
     ```TEXT
@@ -57,8 +57,8 @@
 
     The PRGV records provides the progress of PRGT and PRGV. The third
     value provides the maximum (always 65536) while the first and the
-    second provide the actual progress value. 
-    
+    second provide the actual progress value.
+
     The information in this record is meaningless if you don't know what
     the current PRGT and PRGC are.
 
@@ -72,7 +72,7 @@
 use log::{debug, error, info, warn};
 
 // crate-provided imports
-use crate::drives::{OpticalDisc};
+use crate::drives::OpticalDisc;
 
 // ------------------------------------------------------------------------
 // public interface
@@ -86,7 +86,6 @@ pub struct ProgressValue {
 }
 
 impl ProgressValue {
-
     pub fn new(code: u32, name: &str) -> Self {
         ProgressValue {
             code,
@@ -94,7 +93,6 @@ impl ProgressValue {
             percentage: 0.0,
         }
     }
-
 }
 #[derive(Clone, Debug)]
 pub struct ProgressUpdate {
@@ -108,7 +106,6 @@ pub struct ProgressUpdate {
 }
 
 impl ProgressUpdate {
-
     // PRGT and PRGC always come before PRGV
     // if at some point "<unknown>" shows up then this indicates makemkvcon
     // is doing something weird and unexpected -> check makemkvcon's output
@@ -141,5 +138,4 @@ impl ProgressUpdate {
     pub fn get_task_name(&self) -> String {
         self.prgc.name.to_owned()
     }
-
 }

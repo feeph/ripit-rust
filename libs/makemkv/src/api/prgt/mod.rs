@@ -12,14 +12,20 @@ PRGT:<code>,<id>,<name>
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProgressTotalRecord {
+    pub source: String,
     pub code: u32,
     pub id: u32,
     pub name: String,
 }
 
 impl ProgressTotalRecord {
-    pub fn new(code: u32, id: u32, name: &str) -> Self {
-        Self { code, id, name: name.to_owned() }
+    pub fn new(source: &str, code: u32, id: u32, name: String) -> Self {
+        Self {
+            source: source.to_string(),
+            code,
+            id,
+            name: name.to_owned(),
+        }
     }
 }
 
@@ -40,12 +46,15 @@ mod tests {
 
     #[test]
     fn test_progress_total_new() {
+        let source = "source_name".to_string();
+        let name = "Scanning CD-ROM devices".to_string();
         // ----------------------------------------------------------------
-        let computed = ProgressTotalRecord::new(5018, 0, "Scanning CD-ROM devices");
+        let computed = ProgressTotalRecord::new(&source, 5018, 0, name.clone());
         let expected = ProgressTotalRecord {
+            source,
             code: 5018,
             id: 0,
-            name: "Scanning CD-ROM devices".to_string(),
+            name,
         };
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
