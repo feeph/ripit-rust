@@ -374,7 +374,7 @@ impl EventParser {
         pu: &mut ProgressUpdate,
         tx: &Sender<ExtractEvent>,
     ) {
-        for event in events {
+        for event in events.drain(..) {
             match event {
                 MakeMkvEvent::MSG(msg) => {
                     let msg_code = msg.code;
@@ -416,7 +416,7 @@ impl EventParser {
                 }
                 MakeMkvEvent::TCOUNT(tc) => {
                     // ignore all TCOUNT events
-                    self.title_count_want = *tc;
+                    self.title_count_want = tc;
                 }
                 MakeMkvEvent::CINFO(_cinfo) => {
                     // TODO process CINFO record
