@@ -45,6 +45,8 @@ pub fn default_severity_map() -> HashMap<u32, Severity> {
     // MSG:5072 - Backing up disc into folder file://<…>
     // MSG:5085 - Loaded content hash table, will verify integrity of M2TS files.
     // <...>
+    // MSG:3027 - Title #44 in VTS 10 is equal to title #37 and was skipped
+    // <...>
     // == generic ==
     // == makemkvcon backup ==
     // -- success --
@@ -82,6 +84,7 @@ pub fn default_severity_map() -> HashMap<u32, Severity> {
         (3007, Severity::Info),
         (3025, Severity::Info),
         (3026, Severity::Info),
+        (3027, Severity::Info), // Title is equal to another title and was skipped
         (3028, Severity::Info),
         (3038, Severity::Info),
         (3041, Severity::Warn), // Failed to add angle
