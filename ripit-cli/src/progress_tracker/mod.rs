@@ -7,6 +7,7 @@
 */
 
 mod format_time;
+mod stage;
 mod truncate_string;
 
 // standard library imports
@@ -29,6 +30,7 @@ use truncate_string::truncate_string;
 // ------------------------------------------------------------------------
 
 pub use format_time::{format_time, format_time_with_units};
+pub use stage::Stage;
 
 /// manages multi-device progress bars (rendered using indicatif)
 /// <https://github.com/console-rs/indicatif/blob/main/examples/multi.rs>
@@ -108,7 +110,7 @@ impl ProgressTracker {
         } else {
             format!("{} ({:.0}%)", stage, percentage)
         };
-        let message = format!("[{}] {:40}", device, stage_str);
+        let message = format!("{:40} {:40}", device, stage_str);
 
         if let Some(pb) = self.pb.get_mut(id) {
             pb.set_message(message);

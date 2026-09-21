@@ -46,6 +46,7 @@
 // standard library imports
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 // third-party imports
 use clap::{Parser, ValueHint};
@@ -59,7 +60,7 @@ use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
 
 // crate-provided imports
-use crate::progress_tracker::ProgressTracker;
+use crate::progress_tracker::{ProgressTracker, Stage};
 use ripit::{
     ExtractEvent, OpticalDrive, ScanMode, extract_from_drive, extract_from_image, find_drives,
     find_matching_drives,
@@ -560,7 +561,7 @@ fn check_directory_and_delete(directory: &PathBuf) -> Result<String, String> {
 struct EventParser {
     pub jobs_done: usize,
     pub jobs_failed: usize,
-    stages: HashMap<String, HashMap<String, (f32, f32)>>,
+    stages: HashMap<String, HashMap<String, Stage>>,
     msg_4004: usize,
 }
 
@@ -634,7 +635,7 @@ impl EventParser {
                     );
 
                     // create a progress bar for the current stage
-                    let pb_prgt_id = format!("{}_{}", pu.source, pu.prgt.code);
+                    let pb_prgt_id = format!("{}_prgt", pu.source);
                     let stage_name = pu.get_stage_name();
                     let disc_name = pu.disc.get_name();
                     pt.create_progress_bar(&pb_prgt_id, disc_name, &stage_name);
@@ -648,8 +649,8 @@ impl EventParser {
 
                     // create a progress bar for the current task
                     // (the progress bar is anchored to its stage)
-                    let pb_prgt_id = format!("{}_{}", pu.source, pu.prgt.code);
-                    let pb_prgc_id = format!("{}_{}:{}", pu.source, pu.prgt.code, pu.prgc.code);
+                    let pb_prgt_id = format!("{}_prgt", pu.source);
+                    let pb_prgc_id = format!("{}_prgc", pu.source);
                     let device_name = pu.source.clone();
                     let task_name = pu.get_task_name();
                     pt.create_progress_bar_after(
@@ -669,25 +670,31 @@ impl EventParser {
                     let device_stage = self
                         .stages
                         .entry(device_name.clone())
-                        .or_insert(HashMap::from([(stage_name.clone(), (f32::NAN, f32::NAN))]));
-                    let (stage_pct_old, task_pct_old) = *device_stage
-                        .get(&stage_name)
-                        .unwrap_or(&(f32::NAN, f32::NAN));
-                    let stage_pct_new = pu.prgt.percentage;
-                    let task_pct_new = pu.prgc.percentage;
+                        .or_insert(HashMap::from([(stage_name.clone(), Stage::new())]));
+                    let stage = device_stage
+                        .entry(stage_name.clone())
+                        .or_insert(Stage::new());
 
                     let disc_name = pu.disc.get_name();
+                    let disc_name_fmt = format!("[{}]", disc_name);
+
+                    let prgt_old = stage.get_prgt();
+                    let prgt_new = pu.prgt.percentage;
+                    let prgc_old = stage.get_prgc();
+                    let prgc_new = pu.prgc.percentage;
+
+                    // update stored values
+                    stage.update_progress(prgt_new, prgc_new);
+
+                    // report to user
 
                     // throttle log output: notify only if stage or
                     // percentage has changed more than 5%
                     // (prevent log-flooding)
-                    if task_pct_old.is_nan()
-                        || stage_pct_new > stage_pct_old
-                        || task_pct_new >= task_pct_old + 5.0
-                    {
+                    if prgc_old.is_nan() || prgt_new > prgt_old || prgc_new >= prgc_old + 5.0 {
                         info!(
                             "[{}] {}: {:3.0}% (done: {}, failed: {})",
-                            device_name, stage_name, task_pct_new, self.jobs_done, self.jobs_failed
+                            device_name, stage_name, prgt_new, self.jobs_done, self.jobs_failed
                         );
                     }
 
@@ -700,22 +707,28 @@ impl EventParser {
                     // remains at the previous value. This doesn't really
                     // make sense but it's the way it is and must be
                     // handled appropriately.
-                    if task_pct_old.is_nan()
-                        || stage_pct_new > stage_pct_old
-                        || task_pct_new >= task_pct_old + 0.1
-                    {
+                    if prgc_old.is_nan() || prgt_new > prgt_old || prgc_new >= prgc_old + 0.1 {
                         // update progress bars for current stage and task
-                        // (intentionally using prgt.code for the PRGC bar)
-                        let pb_prgt_id = format!("{}_{}", pu.source, pu.prgt.code);
-                        let pb_prgc_id = format!("{}_{}:{}", pu.source, pu.prgt.code, pu.prgc.code);
+                        let pb_prgt_id = format!("{}_prgt", pu.source);
+                        let pb_prgc_id = format!("{}_prgc", pu.source);
 
-                        pt.update_progress_bar(
-                            &pb_prgt_id,
-                            disc_name,
-                            &stage_name,
-                            pu.prgt.percentage,
-                        )
-                        .unwrap();
+                        if pu.prgt.percentage < 100.0 {
+                            pt.update_progress_bar(
+                                &pb_prgt_id,
+                                disc_name,
+                                &stage_name,
+                                pu.prgt.percentage,
+                            )
+                            .unwrap();
+                        } else {
+                            pt.clear_progress_bar(&pb_prgt_id).unwrap();
+                            pt.send_text_message(&format!(
+                                "🗸 {:40} '{}' finished after {} seconds.",
+                                disc_name_fmt,
+                                stage_name,
+                                stage.get_elapsed()
+                            ));
+                        }
 
                         // modify the task name to make it more
                         // obvious how stage and task are related:
@@ -725,27 +738,22 @@ impl EventParser {
                         // ----------------------------------------
                         let task_name_mod = format!("`--> {}", task_name);
                         if pu.prgc.percentage < 100.0 {
-                            // update with percentage
                             pt.update_progress_bar(
                                 &pb_prgc_id,
-                                disc_name,
+                                &disc_name_fmt,
                                 &task_name_mod,
                                 pu.prgc.percentage,
                             )
                             .unwrap();
                         } else {
-                            // hide finished tasks
                             pt.clear_progress_bar(&pb_prgc_id).unwrap();
                         }
                     } else {
                         debug!(
                             "task pct: old {:5.2}% new {:5.2}% (skip)",
-                            task_pct_old, task_pct_new
+                            prgc_old, prgc_new
                         );
                     }
-
-                    // update stored value for current percentage
-                    device_stage.insert(stage_name, (stage_pct_new, task_pct_new));
                 }
             }
         }

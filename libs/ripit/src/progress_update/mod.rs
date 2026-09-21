@@ -94,6 +94,7 @@ impl ProgressValue {
         }
     }
 }
+
 #[derive(Clone, Debug)]
 pub struct ProgressUpdate {
     pub source: String,
