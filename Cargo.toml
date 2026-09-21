@@ -22,6 +22,7 @@ env_logger = "0.11"
 exitcode = "1.1"
 futures = "0.3"
 indicatif = "0.17"
+indicatif-log-bridge = "0.2.3"
 itertools = "0.15"
 log = "0.4"
 makemkv = { path = "libs/makemkv" }

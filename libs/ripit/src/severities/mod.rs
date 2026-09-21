@@ -46,6 +46,9 @@ pub fn default_severity_map() -> HashMap<u32, Severity> {
     // MSG:5085 - Loaded content hash table, will verify integrity of M2TS files.
     // <...>
     // MSG:3027 - Title #44 in VTS 10 is equal to title #37 and was skipped
+    // MSG:3029 - Audio stream #4 is identical to stream #2 and was skipped
+    // MSG:3030 - Subtitle stream #11 is identical to stream #9 and was skipped
+    // MSG:3037 - Cells 1-1 were removed from title start
     // <...>
     // == generic ==
     // == makemkvcon backup ==
@@ -66,6 +69,9 @@ pub fn default_severity_map() -> HashMap<u32, Severity> {
     // MSG:2018 - Error 'Internal error - Operation result is incorrect (178)' occurred while writing data to '<…>/C1_t04.mkv' at offset '1811939328'
     // MSG:2019 - Error 'OS error - The system cannot find the path specified' occurred while creating '<…>/B1_t00.mkv'
     // MSG:5038 - The total size of all output files may reach as much as <…> megabytes while there are only <…> megabytes free on the destination drive. Do you still want to continue?
+    // -- content issues --
+    // MSG:3034 - Audio stream #5 in title #7 looks empty and was skipped
+    // MSG:4004 - The source file '/VIDEO_TS/VTS_01_1.VOB' is corrupt or invalid at offset 28672, attempting to work around
     // -- conflict --
     // MSG:5001 - File <…>/B1_t00.mkv already exist. Do you want to overwrite it?
     // MSG:5005 - 1 titles saved
@@ -86,6 +92,10 @@ pub fn default_severity_map() -> HashMap<u32, Severity> {
         (3026, Severity::Info),
         (3027, Severity::Info), // Title is equal to another title and was skipped
         (3028, Severity::Info),
+        (3029, Severity::Info), // Audio stream is identical to another stream and was skipped
+        (3030, Severity::Info), // Subtitle stream is identical to another stream and was skipped
+        (3034, Severity::Info), // Audio stream looks empty and was skipped
+        (3037, Severity::Info), // Cells were removed from title start
         (3038, Severity::Info),
         (3041, Severity::Warn), // Failed to add angle
         (3307, Severity::Info),
@@ -95,6 +105,7 @@ pub fn default_severity_map() -> HashMap<u32, Severity> {
         (3328, Severity::Info),
         (3338, Severity::Info),
         (3344, Severity::Info),
+        (4004, Severity::Warn), // The source file is corrupt or invalid, attempting to work around
         (5001, Severity::Warn), // File already exist
         (5003, Severity::Fail), // Failed to save title to file
         (5004, Severity::Fail), // 0 titles saved, 1 failed

@@ -24,6 +24,7 @@ words:
   - harddrive
   - hddvd
   - HDMV
+  - indicatif
   - IOERR
   - isofile
   - itertools
@@ -57,4 +58,5 @@ ignoreWords:
   - DH16AFSH
   - KL1OBDB4635
   - PLDS
+  - dialoguer
 import: []

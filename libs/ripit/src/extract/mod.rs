@@ -20,7 +20,7 @@ use crate::drives::{BluRay, Dvd, OpticalDisc, OpticalDrive};
 use crate::os_utils::calculate_filesystem_size;
 use crate::progress_update::ProgressUpdate;
 use crate::severities::{Severity, default_severity_map};
-use makemkv::{MakeMkv, MakeMkvCli, MakeMkvEvent, MsgRecord, ScanMode, Source};
+use makemkv::{MakeMkv, MakeMkvCli, MakeMkvEvent, MsgRecord, ScanMode};
 
 // ------------------------------------------------------------------------
 // public interface
@@ -430,17 +430,15 @@ impl EventParser {
                 MakeMkvEvent::PRGT(prgt) => {
                     info!("[PRGT:{}] {} {}", prgt.code, prgt.name, prgt.id);
 
-                    let source = prgt.source.clone();
-
                     // update 'progress total' values
                     pu.prgt.code = prgt.code;
-                    pu.prgt.name = prgt.name.clone();
-                    pu.prgt.percentage = 0.0;
+                    pu.prgt.name = prgt.name;
+                    pu.prgt.percentage = f32::NAN;
 
                     // reset 'progress current' values
                     pu.prgc.code = 0;
                     pu.prgc.name = "<n/a>".to_string();
-                    pu.prgc.percentage = 0.0;
+                    pu.prgc.percentage = f32::NAN;
 
                     // send event with updated values
                     tx.send(ExtractEvent::ProgressT(pu.clone())).await.unwrap();
@@ -448,12 +446,10 @@ impl EventParser {
                 MakeMkvEvent::PRGC(prgc) => {
                     info!("[PRGC:{}] {} {}", prgc.code, prgc.name, prgc.id);
 
-                    let source = prgc.source.clone();
-
                     // update 'progress current' values
                     pu.prgc.code = prgc.code;
                     pu.prgc.name = prgc.name.clone();
-                    pu.prgc.percentage = 0.0;
+                    pu.prgc.percentage = f32::NAN;
 
                     // send event with updated values
                     tx.send(ExtractEvent::ProgressC(pu.clone())).await.unwrap();
@@ -463,8 +459,6 @@ impl EventParser {
                         "[PRGV] current: {} total: {} maximum: {}",
                         prgv.current, prgv.total, prgv.maximum
                     );
-
-                    let source = prgv.source.clone();
 
                     // update 'progress current' values
                     pu.prgt.percentage = 100.0 * (prgv.total as f32) / (prgv.maximum as f32);

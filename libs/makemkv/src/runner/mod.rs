@@ -119,14 +119,6 @@ pub async fn run_makemkvcon(
         }
     }
 
-    // ensure a 100% indication is printed for the last stage
-    let mut prgv_last = pc.get_prgv();
-    if prgv_last.current < prgv_last.maximum {
-        prgv_last.current = prgv_last.maximum;
-        let event = MakeMkvEvent::PRGV(prgv_last.clone());
-        tx.send(event).await.unwrap();
-    }
-
     debug!("run_makemkvcon(): run_program() has returned.");
 
     // process the stream attribute cache and convert to the correct record type
@@ -268,6 +260,23 @@ impl ParserContext {
     }
 
     async fn process_output(&mut self, line: &str, tx: &Sender<MakeMkvEvent>) {
+        // please note: the reported percentages for some progress values
+        // are completely bonkers and may reset back to zero without any
+        // obvious reason:
+        // ----------------------------------------------------------------
+        // PRGT:5018,0,"Scanning CD-ROM devices"
+        // PRGC:5018,0,"Scanning CD-ROM devices"
+        // PRGV:0,0,65536                    cur:   0% tot:   0%
+        // PRGV:0,0,65536                    cur:   0% tot:   0%
+        // PRGV:65536,0,65536                cur: 100% tot: 100%
+        // PRGV:65536,65536,65536            cur: 100% tot: 100%
+        // PRGV:0,65536,65536                cur:   0% tot: 100% <- !!!
+        // PRGV:0,0,65536                    cur:   0% tot:   0% <- !!!
+        // ----------------------------------------------------------------
+        // the indicated two records should be ignored because:
+        // - 'current' percentage resets without a PRGC record
+        // - 'total' percentage resets without a PRGT record
+
         let parsed = parse_output_line(line.as_bytes());
         match parsed {
             // extract messages
@@ -344,102 +353,194 @@ impl ParserContext {
             }
             // extract progress-related data
             ParsedOutputLine::PRGT((code, id, name)) => {
-                // sample output
+                // from <https://www.makemkv.com/developers/usage.txt>:
                 // ----------------------------------------------------
-                // PRGT:5018,0,"Scanning CD-ROM devices"
-                // PRGT:5047,0,"Copying all files"
+                // Current and total progress title
+                //
+                // PRGC:code,id,name
+                // PRGT:code,id,name
+                // code - unique message code
+                // id   - operation sub-id
+                // name - name string
                 // ----------------------------------------------------
 
-                // ensure a 100% indication is printed for the previous
-                // stage and task
-                if self.prgc_last < self.prg_max {
+                // cleanup: make sure a 100% indication is emitted for the
+                // previous PRGT event before creating a new one
+                //
+                // multiple PRGT's are known to stop before reaching 'max',
+                // e.g. "Opening DVD disc" may stop at 69% (45211)
+                // --------------------------------------------------------
+                // PRGT:3100,0,"Opening DVD disc"              cur:  tot:
+                // <…>
+                // PRGV:65536,45211,65536                      100%  >69%<
+                // PRGV:0,45211,65536                            0%   69%
+                // PRGV:0,0,65536                                0%    0%
+                // PRGT:5024,0,"Saving all titles to MKV files"
+                // --------------------------------------------------------
+                if self.prgt_last < self.prg_max {
+                    debug!(
+                        "Previous PRGT did not complete: {} < {}.",
+                        self.prgt_last, self.prg_max
+                    );
+                    debug!("Finalizing the incomplete PRGT record ourselves.");
                     let prgv = ProgressValueRecord::new(
                         &self.source,
-                        self.prg_max,
-                        self.prg_max,
+                        self.prg_max, // set 'current' to 100%
+                        self.prg_max, // set 'total' to 100%
                         self.prg_max,
                     );
-                    let event = MakeMkvEvent::PRGV(prgv);
-                    tx.send(event).await.unwrap();
+                    tx.send(MakeMkvEvent::PRGV(prgv)).await.unwrap();
                 }
 
-                // process PRGT event
+                // process the current PRGT event
                 let prgt = ProgressTotalRecord::new(&self.source, code, id, name);
-                let event = MakeMkvEvent::PRGT(prgt);
-                tx.send(event).await.unwrap();
+                tx.send(MakeMkvEvent::PRGT(prgt)).await.unwrap();
 
                 // reset 'current' and 'total' progress
                 self.prgc_last = 0;
                 self.prgt_last = 0;
-                // zero out prg_last to indicate the maximum is unknown
+                // zero out 'max' value to indicate the maximum is unknown
                 self.prg_max = 0;
             }
             ParsedOutputLine::PRGC((code, id, name)) => {
-                // The meaning of the second field is unclear. Usually
-                // the value increases, but sometimes it skips ahead
-                // and sometimes it decreases again.
+                // from <https://www.makemkv.com/developers/usage.txt>:
                 // ----------------------------------------------------
-                // PRGC:5046,435,"Copying file"
-                // PRGC:5046,466,"Copying file" <-- skips ahead
-                // PRGC:5046,467,"Copying file"
-                // PRGC:5046,203,"Copying file" <-- decreases
+                // Current and total progress title
+                //
+                // PRGC:code,id,name
+                // PRGT:code,id,name
+                // code - unique message code
+                // id - operation sub-id
+                // name - name string
                 // ----------------------------------------------------
 
-                // ensure a 100% indication is printed for the previous task
+                // cleanup: make sure a 100% indication is emitted for the
+                // previous PRGC before creating a new one
+                //
+                // multiple PRGC's are known to stop before reaching 'max',
+                // e.g. "Processing title sets" may stop at 89% (58637)
+                // --------------------------------------------------------
+                // PRGT:3100,0,"Opening DVD disc"
+                // PRGC:3102,0,"Processing title sets"         cur:  tot:
+                // PRGV:0,0,65536                                0%    0%
+                // <…>
+                // PRGV:58637,7051,65536                       >89%<  11%
+                // PRGC:3120,1,"Scanning contents"
+                // PRGV:0,7051,65536                             0%   11%
+                // --------------------------------------------------------
                 if self.prgc_last < self.prg_max {
                     let prgv = ProgressValueRecord::new(
                         &self.source,
-                        self.prg_max,
-                        self.prgt_last,
+                        self.prg_max,   // set 'current' to 100%
+                        self.prgt_last, // leave 'total' unchanged
                         self.prg_max,
                     );
-                    let event = MakeMkvEvent::PRGV(prgv);
-                    tx.send(event).await.unwrap();
+                    tx.send(MakeMkvEvent::PRGV(prgv)).await.unwrap();
                 }
 
-                // process PRGC event
+                // process the current PRGC event
                 let prgc = ProgressCurrentRecord::new(&self.source, code, id, name);
-                let event = MakeMkvEvent::PRGC(prgc);
-                tx.send(event).await.unwrap();
+                tx.send(MakeMkvEvent::PRGC(prgc)).await.unwrap();
 
                 // reset 'current' progress
-                // (preserve 'total' and 'max' value)
+                // (preserve recorded 'total' and 'max' value)
                 self.prgc_last = 0;
             }
             ParsedOutputLine::PRGV((current, total, maximum)) => {
-                // ensure a 0% indication is printed for each stage
-                if self.prgc_last == 0 && current > 0 {
-                    let prgv = ProgressValueRecord::new(&self.source, 0, total, maximum);
-                    let event = MakeMkvEvent::PRGV(prgv);
-                    tx.send(event).await.unwrap();
-                }
+                // from <https://www.makemkv.com/developers/usage.txt>:
+                // ----------------------------------------------------
+                // Progress bar values for current and total progress
+                //
+                // PRGV:current,total,max
+                // current - current progress value
+                // total   - total progress value
+                // max     - maximum possible value for a progress bar
+                // ----------------------------------------------------
 
                 // process PRGV event
-                let prgv = ProgressValueRecord::new(&self.source, current, total, maximum);
-                let event = MakeMkvEvent::PRGV(prgv.clone());
-                tx.send(event).await.unwrap();
+                //
+                // a) it is possible for 'current' to remain unchanged
+                //    while 'total' increases:
+                // --------------------------------------------------------
+                // PRGV:65505,64683,65536
+                // PRGV:65505,65270,65536
+                //        ^-- 'current' remained at previous value
+                // --------------------------------------------------------
+                // b) it is possible for 'current' to increase while
+                //    while 'total' remains unchanged
+                // --------------------------------------------------------
+                // PRGV:0,0,65536
+                // PRGV:65536,0,65536
+                //            ^-- 'total' remained at previous value
+                // --------------------------------------------------------
+                //
+                // "Scanning CD-ROM devices" is known to generate really
+                // weird output:
+                //   - 'current' resets from 65536 to 0 without a PRGC
+                //   - 'total' resets from 65536 to 0 without a PRGT
+                // --------------------------------------------------------
+                // PRGT:5018,0,"Scanning CD-ROM devices"
+                // PRGC:5018,0,"Scanning CD-ROM devices"
+                // PRGV:0,0,65536
+                // PRGV:0,0,65536
+                // PRGV:65536,0,65536
+                // PRGV:65536,65536,65536
+                // PRGV:0,65536,65536             <-- 'current' resets to 0
+                // PRGV:0,0,65536                 <-- 'total' resets to 0
+                // PRGT:3100,0,"Opening DVD disc"
+                // --------------------------------------------------------
+                debug!(
+                    "current: {:5} -> {:5} || total: {:5} -> {:5} || max: {:5} -> {:5}",
+                    self.prgc_last, current, self.prgt_last, total, self.prg_max, maximum
+                );
+                if current >= self.prgc_last && total >= self.prgt_last {
+                    let prgv = ProgressValueRecord::new(&self.source, current, total, maximum);
+                    tx.send(MakeMkvEvent::PRGV(prgv)).await.unwrap();
 
-                // remember updated progress values
-                self.prgc_last = current;
-                self.prgt_last = total;
-                self.prg_max = maximum;
+                    // remember updated progress values
+                    self.prgc_last = current;
+                    self.prgt_last = total;
+                    self.prg_max = maximum;
+                } else if total < self.prgt_last {
+                    debug!(
+                        "Ignoring '{}' because 'total' progress resets without a PRGT. (old: {}, new: {})",
+                        line, self.prgt_last, total
+                    );
+                } else if current < self.prgc_last {
+                    debug!(
+                        "Ignoring '{}' because 'current' progress resets without a PRGC. (old: {}, new: {})",
+                        line, self.prgc_last, current
+                    );
+                } else {
+                    warn!(
+                        "huh?! current: {:5} -> {:5} || total: {:5} -> {:5} || max: {:5} -> {:5}",
+                        self.prgc_last, current, self.prgt_last, total, self.prg_max, maximum
+                    );
+                }
             }
         }
     }
 
     fn get_dc(&self) -> DiscContent {
-        return self.dc.clone();
-    }
-
-    fn get_prgv(&self) -> ProgressValueRecord {
-        ProgressValueRecord::new(&self.source, self.prgc_last, self.prgt_last, self.prg_max)
+        self.dc.clone()
     }
 
     fn get_sac(&self) -> SacType {
-        return self.sac.clone();
+        self.sac.clone()
     }
 
     fn get_title_count(&self) -> usize {
-        return self.title_count;
+        self.title_count
+    }
+}
+
+impl Drop for ParserContext {
+    fn drop(&mut self) {
+        if self.prgt_last < self.prg_max {
+            warn!("prgt_last < prg_max: {} < {}", self.prgt_last, self.prg_max);
+        }
+        if self.prgc_last < self.prg_max {
+            warn!("prgc_last < prg_max: {} < {}", self.prgc_last, self.prg_max);
+        }
     }
 }
