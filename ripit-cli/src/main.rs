@@ -79,7 +79,10 @@ async fn main() {
         },
     };
 
-    let cli = Cli::parse();
+    // using 'wild::args_os()' to expand wildcard arguments on Windows
+    // (on Linux this is a no-op since the shell already did it for us)
+    // <https://docs.rs/wild/latest/wild/>
+    let cli = Cli::parse_from(wild::args_os());
     let exit_code = match cli.cmd {
         // TODO consider moving all async-related logic to subcommands and make main() async-less again?
         Cmd::Drives(args) => cmd_drives::run(args, &mm).await,

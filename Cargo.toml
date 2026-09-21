@@ -37,6 +37,7 @@ speedate = "0.17"
 strum_macros = "0.28"
 tokio = "1.52"
 which = "8.0"
+wild = "2.2.1"
 winapi = "0.3"
 
 [workspace.package]

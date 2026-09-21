@@ -698,6 +698,9 @@ impl EventParser {
                         );
                     }
 
+                    let pb_prgt_id = format!("{}_prgt", pu.source);
+                    let pb_prgc_id = format!("{}_prgc", pu.source);
+
                     // throttle progress bars: notify only if relevant
                     // progress was made
                     // (indicatif handles fine-grained throttling)
@@ -709,26 +712,13 @@ impl EventParser {
                     // handled appropriately.
                     if prgc_old.is_nan() || prgt_new > prgt_old || prgc_new >= prgc_old + 0.1 {
                         // update progress bars for current stage and task
-                        let pb_prgt_id = format!("{}_prgt", pu.source);
-                        let pb_prgc_id = format!("{}_prgc", pu.source);
-
-                        if pu.prgt.percentage < 100.0 {
-                            pt.update_progress_bar(
-                                &pb_prgt_id,
-                                disc_name,
-                                &stage_name,
-                                pu.prgt.percentage,
-                            )
-                            .unwrap();
-                        } else {
-                            pt.clear_progress_bar(&pb_prgt_id).unwrap();
-                            pt.send_text_message(&format!(
-                                "🗸 {:40} '{}' finished after {} seconds.",
-                                disc_name_fmt,
-                                stage_name,
-                                stage.get_elapsed()
-                            ));
-                        }
+                        pt.update_progress_bar(
+                            &pb_prgt_id,
+                            disc_name,
+                            &stage_name,
+                            pu.prgt.percentage,
+                        )
+                        .unwrap();
 
                         // modify the task name to make it more
                         // obvious how stage and task are related:
@@ -737,22 +727,31 @@ impl EventParser {
                         // ⠹ [/dev/sr0] `--> Copying file (25%)   [████░░░░░░░░░░░░░░░░] 00:00:12
                         // ----------------------------------------
                         let task_name_mod = format!("`--> {}", task_name);
-                        if pu.prgc.percentage < 100.0 {
-                            pt.update_progress_bar(
-                                &pb_prgc_id,
-                                &disc_name_fmt,
-                                &task_name_mod,
-                                pu.prgc.percentage,
-                            )
-                            .unwrap();
-                        } else {
-                            pt.clear_progress_bar(&pb_prgc_id).unwrap();
-                        }
+                        pt.update_progress_bar(
+                            &pb_prgc_id,
+                            &disc_name_fmt,
+                            &task_name_mod,
+                            pu.prgc.percentage,
+                        )
+                        .unwrap();
                     } else {
                         debug!(
                             "task pct: old {:5.2}% new {:5.2}% (skip)",
                             prgc_old, prgc_new
                         );
+                    }
+
+                    if prgt_new == 100.0 {
+                        // record completion
+                        pt.send_text_message(&format!(
+                            "🗸 {:40} '{}' finished after {} seconds.",
+                            disc_name_fmt,
+                            stage_name,
+                            stage.get_elapsed()
+                        ));
+                        // remove progress bars
+                        pt.clear_progress_bar(&pb_prgc_id).unwrap();
+                        pt.clear_progress_bar(&pb_prgt_id).unwrap();
                     }
                 }
             }

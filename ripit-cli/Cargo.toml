@@ -25,3 +25,4 @@ serde = { features = ["derive", "std"], workspace = true }
 serde_yaml = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 which = { workspace = true }
+wild = { workspace = true }
