@@ -6,16 +6,10 @@
     updates. In pipe/file mode, uses structured log format.
 */
 
-mod format_time;
 mod stage;
-mod truncate_string;
 
 // standard library imports
 use std::collections::HashMap;
-use std::path::PathBuf;
-// use std::sync::{Arc, Mutex};
-// use std::thread;
-// use std::time::{Instant, Duration};
 
 // third-party imports
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -23,13 +17,12 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::{debug, error, info, trace, warn};
 
 // crate-provided imports
-use truncate_string::truncate_string;
+// <none>
 
 // ------------------------------------------------------------------------
 // public interface
 // ------------------------------------------------------------------------
 
-pub use format_time::{format_time, format_time_with_units};
 pub use stage::Stage;
 
 /// manages multi-device progress bars (rendered using indicatif)
@@ -55,8 +48,7 @@ impl ProgressTracker {
     }
 
     pub fn create_progress_bar(&mut self, id: &str, device: &str, stage: &str) {
-        let prefix = format!("[{}] {:40}", device, stage);
-        let message = format_time(0);
+        let message = format!("[{}] {:40}", device, stage);
         let length = 100; // 100% = done
 
         // !! order of operations is extremely important !!
@@ -66,7 +58,6 @@ impl ProgressTracker {
             .mp
             .add(ProgressBar::new(length))
             .with_style(self.style.clone())
-            .with_prefix(prefix)
             .with_message(message);
 
         self.pb.insert(id.to_owned(), pb);
@@ -79,8 +70,7 @@ impl ProgressTracker {
         stage: &str,
         id_parent: &str,
     ) -> Result<(), bool> {
-        let prefix = format!("[{}] {:40}", device, stage);
-        let message = format_time(0);
+        let message = format!("[{}] {:40}", device, stage);
         let length = 100; // 100% = done
 
         if let Some(pb_parent) = self.pb.get_mut(id_parent) {
@@ -88,7 +78,6 @@ impl ProgressTracker {
                 .mp
                 .insert_after(pb_parent, ProgressBar::new(length))
                 .with_style(self.style.clone())
-                .with_prefix(prefix)
                 .with_message(message);
 
             self.pb.insert(id.to_owned(), pb);
@@ -135,34 +124,6 @@ impl ProgressTracker {
     }
 }
 
-// use here and by cmd_unshackle
-pub fn format_filesize(bytes: u64) -> String {
-    if bytes == 0 {
-        return String::from("-");
-    }
-
-    let gib_divisor = 1024.0_f64 * 1024.0 * 1024.0;
-    let mib_divisor = 1024.0_f64 * 1024.0;
-    let kib_divisor = 1024.0_f64;
-
-    let size_gib = bytes as f64 / gib_divisor;
-    if size_gib >= 1.0 {
-        return format!("{:.1} GiB", size_gib);
-    }
-
-    let size_mib = bytes as f64 / mib_divisor;
-    if size_mib >= 1.0 {
-        return format!("{:.1} MiB", size_mib);
-    }
-
-    let size_kib = bytes as f64 / kib_divisor;
-    if size_kib >= 1.0 {
-        return format!("{:.1} KiB", size_kib);
-    }
-
-    format!("{} B", bytes)
-}
-
 // ------------------------------------------------------------------------
 // private helper functions
 // ------------------------------------------------------------------------
@@ -173,53 +134,4 @@ fn create_progress_style() -> ProgressStyle {
         .template("{spinner:.green} {msg:80} [{bar:20.cyan/blue}] {elapsed_precise}")
         .unwrap()
         .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
-}
-
-fn format_message(drive_name: &PathBuf, disc_name: &str, stage: &str, percentage: f32) -> String {
-    let device_name_str = drive_name.to_string_lossy();
-
-    // pre-format these values so we can align the combined value
-    let disc_name = disc_name.to_string();
-    let stage_fmt = if percentage.is_nan() {
-        // e.g. '✓ Complete'
-        truncate_string(stage, 26)
-    } else {
-        // e.g. 'Copying file (42%)'
-        format!("{} ({:.0}%)", truncate_string(stage, 26), percentage)
-    };
-
-    // generate the full output
-    format!("[{}] {:30} | {:30}", device_name_str, disc_name, stage_fmt)
-}
-
-// ------------------------------------------------------------------------
-// unit tests
-// ------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    #[test]
-    fn test_format_filesize() {
-        assert_eq!(format_filesize(0), "-");
-        assert_eq!(format_filesize(1024), "1.0 KiB");
-        assert_eq!(format_filesize(1_048_576), "1.0 MiB");
-        assert_eq!(format_filesize(4_700_000_000), "4.4 GiB");
-    }
-
-    #[test]
-    fn test_format_prefix() {
-        let drive_name = PathBuf::from("/dev/sr0");
-        let disc_name = "DVDVolume";
-        let stage = "Scanning contents";
-        let percentage = 12.34;
-        // ----------------------------------------------------------------
-        let computed = format_message(&drive_name, disc_name, stage, percentage);
-        let expected = "[/dev/sr0] DVDVolume                      | Scanning contents (12%)       "
-            .to_string();
-        // ----------------------------------------------------------------
-        assert_eq!(computed, expected);
-    }
 }

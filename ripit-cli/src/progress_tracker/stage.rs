@@ -41,10 +41,6 @@ impl Stage {
         self.prgt_pct
     }
 
-    pub fn get_start_time(&self) -> Instant {
-        self.time_beg
-    }
-
     pub fn get_elapsed(&self) -> u64 {
         let time_end = match self.time_end {
             Some(time_end) => time_end,

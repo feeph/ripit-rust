@@ -46,7 +46,6 @@
 // standard library imports
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
 // third-party imports
 use clap::{Parser, ValueHint};
