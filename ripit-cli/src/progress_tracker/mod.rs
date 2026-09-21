@@ -43,7 +43,9 @@ impl ProgressTracker {
         }
     }
 
-    pub fn get_mp(&self) -> MultiProgress {
+    // it is important that this function signature uses the qualified
+    // type 'indicatif::MultiProgress' instead of 'MultiProgress'
+    pub fn get_mp(&self) -> indicatif::MultiProgress {
         self.mp.clone()
     }
 
