@@ -50,6 +50,7 @@ use std::path::{Path, PathBuf};
 // third-party imports
 use clap::{Parser, ValueHint};
 use dialoguer::Confirm;
+use dialoguer::console::{Alignment, pad_str};
 use indicatif_log_bridge::LogWrapper;
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
@@ -667,7 +668,6 @@ impl EventParser {
                         .or_insert(Stage::new());
 
                     let disc_name = pu.disc.get_name();
-                    let disc_name_fmt = format!("[{}]", disc_name);
 
                     let prgt_old = stage.get_prgt();
                     let prgt_new = pu.prgt.percentage;
@@ -675,9 +675,17 @@ impl EventParser {
                     let prgc_new = pu.prgc.percentage;
 
                     // update stored values
+                    // --------------------
+
                     stage.update_progress(prgt_new, prgc_new);
 
                     // report to user
+                    // --------------
+
+                    // create a fixed-length string suitable for generating
+                    // vertically aligned output
+                    // (pad or truncate the disc's name as needed)
+                    let disc_name_fl = pad_str(disc_name, 20, Alignment::Left, Some("…"));
 
                     // throttle log output: notify only if stage or
                     // percentage has changed more than 5%
@@ -705,7 +713,7 @@ impl EventParser {
                         // update progress bars for current stage and task
                         pt.update_progress_bar(
                             &pb_prgt_id,
-                            disc_name,
+                            &disc_name_fl,
                             &stage_name,
                             pu.prgt.percentage,
                         )
@@ -720,7 +728,7 @@ impl EventParser {
                         let task_name_mod = format!("`--> {}", task_name);
                         pt.update_progress_bar(
                             &pb_prgc_id,
-                            &disc_name_fmt,
+                            &disc_name_fl,
                             &task_name_mod,
                             pu.prgc.percentage,
                         )
@@ -735,8 +743,8 @@ impl EventParser {
                     if prgt_new == 100.0 {
                         // record completion
                         pt.send_text_message(&format!(
-                            "🗸 {:40} '{}' finished after {} seconds.",
-                            disc_name_fmt,
+                            "🗸 [{}] '{}' finished after {} seconds.",
+                            disc_name_fl,
                             stage_name,
                             stage.get_elapsed()
                         ));
