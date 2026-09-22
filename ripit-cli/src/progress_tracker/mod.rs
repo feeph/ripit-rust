@@ -12,6 +12,7 @@ mod stage;
 use std::collections::HashMap;
 
 // third-party imports
+use dialoguer::console::truncate_str;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
@@ -101,7 +102,8 @@ impl ProgressTracker {
         } else {
             format!("{} ({:.0}%)", stage, percentage)
         };
-        let message = format!("{:40} {:40}", device, stage_str);
+        let device_20 = truncate_str(device, 20, "…");
+        let message = format!("[{:20}] {:40}", device_20, stage_str);
 
         if let Some(pb) = self.pb.get_mut(id) {
             pb.set_message(message);

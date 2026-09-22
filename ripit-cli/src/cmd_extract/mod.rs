@@ -22,7 +22,7 @@
 
     # read from one or more disc images
     ripit-cli extract -i feature.iso -i bonus.iso -t C:\mkv
-    ripit-cli extract -i *.iso                    -t /mnt/mkv
+    ripit-cli extract -i dir\*.iso                -t /mnt/mkv
     ```
 
     output example:
@@ -77,10 +77,10 @@ enum OutputFormat {
     Yaml,
 }
 
+// Please note:
+// Trailing dots in ///-comments are stripped by clap.
 #[derive(Parser, Debug)]
 pub struct CmdArgs {
-    // Please note:
-    // Trailing dots in ///-comments are stripped by clap.
     /// Select a drive, e.g. 'D:' or '/dev/sr0' (repeatable)
     /// (implies usage of all drives if none are selected)
     #[arg(short = 'd', long = "drive", num_args = 1..)]
@@ -90,17 +90,10 @@ pub struct CmdArgs {
     #[arg(short = 'i', long = "disc-image", num_args = 1..)]
     disc_image: Vec<PathBuf>,
 
-    /// Target directory
+    /// Write MKV files to a disc-specific directory at this location
     #[arg(short = 't', long = "target-dir", default_value = ".", value_hint = ValueHint::DirPath)]
     target: std::path::PathBuf,
 
-    // /// A path-like source: directory, filename, device name, or drive letter
-    // #[arg()]
-    // source: std::path::PathBuf,
-
-    // /// Write MKV files to a disc-specific directory at this location
-    // #[arg(short = 'r', long = "target-root", default_value = ".", value_hint = ValueHint::DirPath)]
-    // target: std::path::PathBuf,
     /// Extract one or more specific title(s) identified by their index [defaults to 'all']
     #[arg(short = 'T', long = "title", value_name = "TITLE")]
     titles: Vec<usize>,
@@ -194,8 +187,7 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
     // using drives and images at the same time is not supported because
     // that allows us to skip the drive scanning if one or more image are
     // being used. This may reduce startup time by up to a minute.
-    // (Depending on how many drives are present and if they are currently
-    // busy.)
+    // (depending on how many drives are present and if they are busy)
     let mut sources = Vec::new();
     if !args.disc_image.is_empty() {
         for filename in args.disc_image {
@@ -415,18 +407,18 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
         // - potentially related to disk space issues (filesystem full)?
         // ----------------------------------------------------------------
         // I: Found 3 drives: /dev/sr0 /dev/sr1 /dev/sr2
-        // I: Deleted existing directory "/media/backup/dump/_dev6_multi/DVDVolume". (0 MKV files, 0 other).
+        // I: Deleted existing directory "<…>/DVDVolume". (0 MKV files, 0 other).
         // I: Using optical drive "/dev/sr2" (DVDVolume).
         // I: Using optical drive "/dev/sr1" (OTAKU_NO_VIDEO).
-        // [makemkv] E: MSG:2018 - Error 'Posix error - Resource temporarily unavailable' occurred while writing data to '/media/backup/dump/_dev6_multi/DVDVolume/B1_t00.mkv' at offset '1207959552'
-        // [makemkv] E: MSG:2018 - Error 'Posix error - Resource temporarily unavailable' occurred while writing data to '/media/backup/dump/_dev6_multi/OTAKU_NO_VIDEO/C1_t04.mkv' at offset '2181038080'
-        // [makemkv] E: MSG:5003 - Failed to save title 4 to file /media/backup/dump/_dev6_multi/OTAKU_NO_VIDEO/C1_t04.mkv
-        // [makemkv] E: MSG:5003 - Failed to save title 0 to file /media/backup/dump/_dev6_multi/DVDVolume/B1_t00.mkv
+        // [makemkv] E: MSG:2018 - Error 'Posix error - Resource temporarily unavailable' occurred while writing data to '<…>/DVDVolume/B1_t00.mkv' at offset '1207959552'
+        // [makemkv] E: MSG:2018 - Error 'Posix error - Resource temporarily unavailable' occurred while writing data to '<…>/OTAKU_NO_VIDEO/C1_t04.mkv' at offset '2181038080'
+        // [makemkv] E: MSG:5003 - Failed to save title 4 to file <…>/OTAKU_NO_VIDEO/C1_t04.mkv
+        // [makemkv] E: MSG:5003 - Failed to save title 0 to file <…>/DVDVolume/B1_t00.mkv
         // [makemkv] E: MSG:5004 - 17 titles saved, 1 failed
         // [makemkv] E: MSG:5037 - Copy complete. 17 titles saved, 1 failed.
         // [OTAKU_NO_VIDEO] Extraction completed backup after 867 seconds. (3.7GiB written, 4.4MiB/s)
-        // [makemkv] E: MSG:2019 - Error 'Posix error - No such file or directory' occurred while creating '/media/backup/dump/_dev6_multi/DVDVolume/B1_t16.mkv'
-        // [makemkv] E: MSG:5003 - Failed to save title 16 to file /media/backup/dump/_dev6_multi/DVDVolume/B1_t16.mkv
+        // [makemkv] E: MSG:2019 - Error 'Posix error - No such file or directory' occurred while creating '<…>/DVDVolume/B1_t16.mkv'
+        // [makemkv] E: MSG:5003 - Failed to save title 16 to file <…>/DVDVolume/B1_t16.mkv
         // [makemkv] E: MSG:5004 - 15 titles saved, 2 failed
         // [makemkv] E: MSG:5037 - Copy complete. 15 titles saved, 2 failed.
         // ⠸ [OTAKU_NO_VIDEO] Saving all titles to MKV files (100%)    [████████████████████] 00:13:03
