@@ -49,12 +49,17 @@ pub async fn find_drives(
 ) -> Result<Vec<OpticalDrive>, String> {
     let (tx, mut rx) = mpsc::channel::<MakeMkvEvent>(256);
     let start_time = Instant::now();
-    let mut th = spawn(async move { mm.info("disc:-1".to_string(), scan_mode, tx).await });
+
+    // from <https://www.makemkv.com/developers/usage.txt>:
+    // --------------------------------------------------------------------
+    // List all available drives
+    // makemkvcon -r --cache=1 info disc:9999
+    // --------------------------------------------------------------------
+    let mut th = spawn(async move { mm.info("disc:9999".to_string(), scan_mode, tx).await });
     let mut result = None;
 
-    let mut drives = Vec::new();
-
     // parse incoming events until the spawned task finishes
+    let mut drives = Vec::new();
     loop {
         tokio::select! {
             // parse generated events
@@ -120,7 +125,7 @@ pub async fn find_drives(
     let elapsed = start_time.elapsed().as_secs();
 
     match result.expect("`makemkvcon info` failed to run!") {
-        Ok(Ok(())) => {
+        Ok(Ok(_)) => {
             info!(
                 "find_drives() finished normally after {} seconds. ({} drives found)",
                 elapsed,

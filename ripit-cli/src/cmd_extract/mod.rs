@@ -389,7 +389,8 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                     // TODO count total bytes
                 }
                 Err(error) => {
-                    let message = format!("[{}] Extraction failed: {:#?}", disc_name, error.reason);
+                    let message =
+                        format!("Extraction of '{}' failed: {:#?}", disc_name, error.reason);
                     pt.send_text_message(&message);
                     ep.jobs_failed += 1;
                 }

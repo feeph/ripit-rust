@@ -1,4 +1,4 @@
-/*
+/*!
     convenience wrapper for MakeMKV
 */
 
@@ -6,6 +6,7 @@ mod drives;
 mod extract;
 mod os_utils;
 mod progress_update;
+mod scan;
 mod severities;
 mod unshackle;
 
@@ -23,4 +24,5 @@ pub use extract::{
     ExtractError, ExtractEvent, ExtractResult, extract_from_drive, extract_from_image,
 };
 pub use progress_update::{ProgressUpdate, ProgressValue};
+pub use scan::{ScanError, ScanEvent, ScanResult, scan_drive, scan_image};
 pub use unshackle::{UnshackleError, UnshackleEvent, unshackle_disc};

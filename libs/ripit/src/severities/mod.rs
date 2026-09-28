@@ -1,4 +1,7 @@
-/*
+/*!
+    define severities for makemkvcon's messages
+
+    some MSG records are informational, others indicate issues
 */
 
 // standard library imports

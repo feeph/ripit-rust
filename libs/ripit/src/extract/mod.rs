@@ -1,4 +1,4 @@
-/*
+/*!
     extract titles from a physical disc or disc image
 
     This code wraps 'makemkvcon mkv' into a more convenient interface.
@@ -20,7 +20,7 @@ use crate::drives::{BluRay, Dvd, OpticalDisc, OpticalDrive};
 use crate::os_utils::calculate_filesystem_size;
 use crate::progress_update::ProgressUpdate;
 use crate::severities::{Severity, default_severity_map};
-use makemkv::{MakeMkv, MakeMkvCli, MakeMkvEvent, MsgRecord, ScanMode};
+use makemkv::{DiscContent, MakeMkv, MakeMkvCli, MakeMkvEvent, MsgRecord, ScanMode};
 
 // ------------------------------------------------------------------------
 // public interface
@@ -46,9 +46,10 @@ pub enum ExtractEvent {
 #[derive(Debug)]
 pub struct ExtractResult {
     pub source: String,
-    pub elapsed_secs: u64,
     pub fs_size: u64,
     pub title_count: usize,
+    pub disc_content: DiscContent,
+    pub elapsed_secs: u64,
 }
 
 #[derive(Debug)]
@@ -236,7 +237,6 @@ async fn extract(
         }
     }
 
-    // let logfile = target.join("extract.log");
     let logfile = target.with_added_extension("log");
     info!("Using logfile '{}'.", logfile.to_string_lossy());
 
@@ -307,9 +307,9 @@ async fn extract(
 
     // record completion and drain buffered events before returning
     match result {
-        Ok(Ok(_result)) => {
+        Ok(Ok(dc)) => {
             // TODO derive 'title_count_have' from result (disc structure)
-            let title_count_have: usize = 0;
+            let title_count_have: usize = dc.titles.len();
             let title_count_want = ep.get_title_count();
             if title_count_have == title_count_want {
                 debug!(
@@ -320,6 +320,7 @@ async fn extract(
                 Ok(ExtractResult {
                     source: source.clone(),
                     title_count: title_count_have,
+                    disc_content: dc,
                     elapsed_secs: elapsed,
                     fs_size,
                 })

@@ -1,4 +1,4 @@
-/*
+/*!
     a hierarchical representation of the disc's content
     (uses the CINFO, TINFO & SINFO records)
 */

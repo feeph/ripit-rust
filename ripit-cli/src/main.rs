@@ -8,7 +8,7 @@ use log::{debug, error, info, warn};
 
 mod cmd_drives;
 mod cmd_extract;
-// mod cmd_scan;
+mod cmd_scan;
 mod cmd_unshackle;
 mod logging;
 mod os_utils;
@@ -21,8 +21,9 @@ enum Cmd {
     #[command(about = "show optical drives")]
     Drives(cmd_drives::CmdArgs),
 
-    // #[command(about = "scan the medium and show its content")]
-    // Scan(cmd_scan::CmdArgs),
+    #[command(about = "scan the medium and show its content")]
+    Scan(cmd_scan::CmdArgs),
+
     #[command(
         about = "free your beloved movies and series from their physical constraints",
         after_help = UNSHACKLE_AFTER_HELP,
@@ -87,7 +88,7 @@ async fn main() {
         // TODO consider moving all async-related logic to subcommands and make main() async-less again?
         Cmd::Drives(args) => cmd_drives::run(args, &mm).await,
         Cmd::Unshackle(args) => cmd_unshackle::run(args, &mm).await,
-        // Cmd::Scan(args) => cmd_scan::run(args, &makemkvcon_bin),
+        Cmd::Scan(args) => cmd_scan::run(args, &mm).await,
         Cmd::Extract(args) => cmd_extract::run(args, &mm).await,
     };
 

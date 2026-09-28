@@ -1,4 +1,4 @@
-/*
+/*!
     interface library for MakeMKV's console application (makemkvcon)
     https://www.makemkv.com/
 
@@ -48,7 +48,7 @@ use tokio::sync::mpsc::Sender;
 // crate-provided imports
 use crate::api::{ProgressCurrentRecord, ProgressTotalRecord, ProgressValueRecord};
 use crate::parser::ParsedOutputLine;
-use crate::runner::{DiscContent, UpdateError, parse_stream_attributes, run_makemkvcon};
+use crate::runner::{UpdateError, parse_stream_attributes, run_makemkvcon};
 
 // ------------------------------------------------------------------------
 // public interface
@@ -59,7 +59,8 @@ pub mod api;
 pub use api::{ContentType, DrvRecord, DrvStatus, InfoRecord, MsgRecord};
 pub use error_types::{BackupError, FirmwareError, InfoError, LicenseError, MkvError};
 pub use runner::{
-    DirectIO, MakeMkvError, MakeMkvEvent, OutputType, Source, StreamRecord, parse_source,
+    DirectIO, DiscContent, MakeMkvError, MakeMkvEvent, OutputType, Source, StreamRecord,
+    parse_source,
 };
 pub use scan_mode::ScanMode;
 
@@ -96,7 +97,7 @@ pub trait MakeMkvCli {
         source: String,
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
-    ) -> Result<(), InfoError>;
+    ) -> Result<DiscContent, InfoError>;
 
     /// saves one or more titles to mkv files
     ///
@@ -115,7 +116,7 @@ pub trait MakeMkvCli {
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
         logfile: Option<PathBuf>,
-    ) -> Result<(), MkvError>;
+    ) -> Result<DiscContent, MkvError>;
 
     /// run universal firmware tool
     ///
@@ -261,7 +262,7 @@ impl MakeMkvCli for MakeMkv {
         source: String,
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
-    ) -> Result<(), InfoError> {
+    ) -> Result<DiscContent, InfoError> {
         // e.g. `makemkvcon64.exe [--noscan] info drv:0`
         let mut args = Vec::new();
         match scan_mode {
@@ -276,7 +277,7 @@ impl MakeMkvCli for MakeMkv {
         args.push(source.clone());
 
         match self.run(&source, args, tx, None).await {
-            Ok(_) => Ok(()),
+            Ok(dc) => Ok(dc),
             Err(MakeMkvError::DataError(_)) => Err(InfoError::DataError),
         }
     }
@@ -289,7 +290,7 @@ impl MakeMkvCli for MakeMkv {
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
         logfile: Option<PathBuf>,
-    ) -> Result<(), MkvError> {
+    ) -> Result<DiscContent, MkvError> {
         // e.g. `makemkvcon64.exe --noscan mkv drv:0 1 title_1.mkv`
         let mut args = Vec::new();
         match scan_mode {
@@ -306,7 +307,7 @@ impl MakeMkvCli for MakeMkv {
         args.push(target.to_string_lossy().to_string());
 
         match self.run(&source, args, tx, logfile).await {
-            Ok(_) => Ok(()),
+            Ok(dc) => Ok(dc),
             Err(MakeMkvError::DataError(_)) => Err(MkvError::DataError),
         }
     }
@@ -600,7 +601,7 @@ impl MakeMkvCli for MakeMkvMock {
         source: String,
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
-    ) -> Result<(), InfoError> {
+    ) -> Result<DiscContent, InfoError> {
         // e.g. `makemkvcon64.exe [--noscan] info drv:0`
         let mut args = Vec::new();
         match scan_mode {
@@ -615,7 +616,7 @@ impl MakeMkvCli for MakeMkvMock {
         args.push(source);
 
         match self.run(args, tx, None).await {
-            Ok(_) => Ok(()),
+            Ok(dc) => Ok(dc),
             Err(MakeMkvError::DataError(_)) => Err(InfoError::DataError),
         }
     }
@@ -628,7 +629,7 @@ impl MakeMkvCli for MakeMkvMock {
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
         logfile: Option<PathBuf>,
-    ) -> Result<(), MkvError> {
+    ) -> Result<DiscContent, MkvError> {
         // e.g. `makemkvcon64.exe --noscan mkv drv:0 1 title_1.mkv`
         let mut args = Vec::new();
         match scan_mode {
@@ -645,7 +646,7 @@ impl MakeMkvCli for MakeMkvMock {
         args.push(target.to_string_lossy().to_string());
 
         match self.run(args, tx, logfile).await {
-            Ok(_) => Ok(()),
+            Ok(dc) => Ok(dc),
             Err(MakeMkvError::DataError(_)) => Err(MkvError::DataError),
         }
     }

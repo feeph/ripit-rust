@@ -93,7 +93,7 @@ pub async fn run_makemkvcon(
     let batch_size = 128;
 
     // parse incoming events until the spawned task finishes
-    let mut pc = ParserContext::new(source);
+    let mut pc = ParserContext::new(source, tx);
     while !th_mkv.is_finished() {
         rx_mkv.recv_many(&mut lines, batch_size).await;
         for line in lines.drain(..) {
@@ -103,9 +103,10 @@ pub async fn run_makemkvcon(
             lw.write(&line).await;
 
             // process MakeMkv's output and generate events
-            pc.process_output(&line, &tx).await;
+            pc.process_output(&line).await;
         }
     }
+
     // makemkvcon does not return any particularly interesting result
     // TODO consider checking for Err()
     let _result = th_mkv.await;
@@ -115,9 +116,21 @@ pub async fn run_makemkvcon(
     if remaining > 0 {
         rx_mkv.recv_many(&mut lines, batch_size).await;
         for line in lines.drain(..) {
-            pc.process_output(&line, &tx).await;
+            pc.process_output(&line).await;
         }
     }
+
+    // ensure the last PRGT/PRGC stops at 100%
+    //
+    // makemkvcon may stop without reaching 100%:
+    // --------------------------------------------------------------------
+    // PRGC:3104,0,"Decrypting data"
+    // PRGV:0,36086,65536
+    // <…>
+    // PRGV:65536,43137,65536
+    // PRGV:65536,43967,65536                 <-- PRGT stops at (43967) 67%
+    // MSG:5011,0,0,"Operation successfully completed","Operation successfully completed"
+    // --------------------------------------------------------------------
 
     debug!("run_makemkvcon(): run_program() has returned.");
 
@@ -150,9 +163,6 @@ pub async fn run_makemkvcon(
         let msg = "Found content but didn't see TCOUNT in output!".to_string();
         return Err(MakeMkvError::DataError(msg));
     }
-
-    // close the communication channel to signal the receiver we're done
-    drop(tx);
 
     debug!("run_makemkvcon(): Finished 'run_program()'. Returning.");
 
@@ -239,6 +249,7 @@ struct ParserContext {
     // the correct type -> create an intermediate stream attribute cache
     sac: SacType,
     dc: DiscContent,
+    tx: Sender<MakeMkvEvent>,
     source: String,
     title_count: usize,
     prgt_last: u32,
@@ -247,10 +258,11 @@ struct ParserContext {
 }
 
 impl ParserContext {
-    fn new(source: &str) -> Self {
+    fn new(source: &str, tx: Sender<MakeMkvEvent>) -> Self {
         ParserContext {
             sac: SacType::new(),
             dc: DiscContent::new(),
+            tx,
             source: source.to_string(),
             title_count: 0,
             prgt_last: 0,
@@ -259,7 +271,7 @@ impl ParserContext {
         }
     }
 
-    async fn process_output(&mut self, line: &str, tx: &Sender<MakeMkvEvent>) {
+    async fn process_output(&mut self, line: &str) {
         // please note: the reported percentages for some progress values
         // are completely bonkers and may reset back to zero without any
         // obvious reason:
@@ -282,7 +294,27 @@ impl ParserContext {
             // extract messages
             ParsedOutputLine::MSG(msg) => {
                 let event = MakeMkvEvent::MSG(msg.to_owned());
-                tx.send(event).await.unwrap();
+                self.tx.send(event).await.unwrap();
+
+                // makemkvcon may stop without reaching 100%:
+                // --------------------------------------------------------
+                // PRGC:3104,0,"Decrypting data"
+                // PRGV:0,36086,65536
+                // <…>
+                // PRGV:65536,43137,65536
+                // PRGV:65536,43967,65536     <-- PRGT stops at (43967) 67%
+                // MSG:5011,0,0,"Operation successfully completed","Operation successfully completed"
+                // --------------------------------------------------------
+                if msg.code == 5011 && self.prgt_last < self.prg_max {
+                    self.prgt_last = self.prg_max;
+                    let prgv = ProgressValueRecord::new(
+                        &self.source,
+                        self.prgc_last,
+                        self.prgt_last,
+                        self.prg_max,
+                    );
+                    self.tx.send(MakeMkvEvent::PRGV(prgv)).await.unwrap();
+                }
             }
             // extract drive-related data
             ParsedOutputLine::DRV(drv) => {
@@ -291,7 +323,7 @@ impl ParserContext {
                 if drv.drive_status != Some(DrvStatus::NoDrive) {
                     let event = MakeMkvEvent::DRV(drv.to_owned());
                     debug!("Parsed drive '{}'.", line);
-                    tx.send(event).await.unwrap();
+                    self.tx.send(event).await.unwrap();
                     debug!("Sent the DRV event.");
                 }
             }
@@ -301,7 +333,7 @@ impl ParserContext {
                 self.title_count = value;
                 // and report its value to the caller
                 let event = MakeMkvEvent::TCOUNT(value);
-                tx.send(event).await.unwrap();
+                self.tx.send(event).await.unwrap();
             }
             ParsedOutputLine::CINFO(ir) => {
                 match self.dc.update_disc_attribute(&ir) {
@@ -389,12 +421,12 @@ impl ParserContext {
                         self.prg_max, // set 'total' to 100%
                         self.prg_max,
                     );
-                    tx.send(MakeMkvEvent::PRGV(prgv)).await.unwrap();
+                    self.tx.send(MakeMkvEvent::PRGV(prgv)).await.unwrap();
                 }
 
                 // process the current PRGT event
                 let prgt = ProgressTotalRecord::new(&self.source, code, id, name);
-                tx.send(MakeMkvEvent::PRGT(prgt)).await.unwrap();
+                self.tx.send(MakeMkvEvent::PRGT(prgt)).await.unwrap();
 
                 // reset 'current' and 'total' progress
                 self.prgc_last = 0;
@@ -435,12 +467,12 @@ impl ParserContext {
                         self.prgt_last, // leave 'total' unchanged
                         self.prg_max,
                     );
-                    tx.send(MakeMkvEvent::PRGV(prgv)).await.unwrap();
+                    self.tx.send(MakeMkvEvent::PRGV(prgv)).await.unwrap();
                 }
 
                 // process the current PRGC event
                 let prgc = ProgressCurrentRecord::new(&self.source, code, id, name);
-                tx.send(MakeMkvEvent::PRGC(prgc)).await.unwrap();
+                self.tx.send(MakeMkvEvent::PRGC(prgc)).await.unwrap();
 
                 // reset 'current' progress
                 // (preserve recorded 'total' and 'max' value)
@@ -495,7 +527,7 @@ impl ParserContext {
                 );
                 if current >= self.prgc_last && total >= self.prgt_last {
                     let prgv = ProgressValueRecord::new(&self.source, current, total, maximum);
-                    tx.send(MakeMkvEvent::PRGV(prgv)).await.unwrap();
+                    self.tx.send(MakeMkvEvent::PRGV(prgv)).await.unwrap();
 
                     // remember updated progress values
                     self.prgc_last = current;
@@ -536,11 +568,22 @@ impl ParserContext {
 
 impl Drop for ParserContext {
     fn drop(&mut self) {
+        if self.prgc_last < self.prg_max {
+            warn!("prgc_last < prg_max: {} < {}", self.prgc_last, self.prg_max);
+        }
         if self.prgt_last < self.prg_max {
             warn!("prgt_last < prg_max: {} < {}", self.prgt_last, self.prg_max);
         }
-        if self.prgc_last < self.prg_max {
-            warn!("prgc_last < prg_max: {} < {}", self.prgc_last, self.prg_max);
+        // ensure all PRGT/PRGC records are finalized
+        if self.prgt_last < self.prg_max || self.prgc_last < self.prg_max {
+            let prgv =
+                ProgressValueRecord::new(&self.source, self.prg_max, self.prg_max, self.prg_max);
+            // need to call an asynchronous function from synchronous block
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let _ = rt.block_on(async { self.tx.send(MakeMkvEvent::PRGV(prgv)).await });
         }
     }
 }
