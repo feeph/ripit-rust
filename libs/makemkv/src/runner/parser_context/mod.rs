@@ -385,6 +385,8 @@ impl Drop for ParserContext {
 // private helper functions
 // ------------------------------------------------------------------------
 
+// <none>
+
 // ------------------------------------------------------------------------
 // tests
 // ------------------------------------------------------------------------
@@ -397,12 +399,53 @@ mod tests {
     use std::fs::File;
     use std::io::{BufRead, BufReader};
 
-    // backup failed, file prematurely stops at:
+    // backup succeeded, file stops at:
+    // --------------------------------------------------------------------
+    // PRGV:65535,65533,65536
+    // MSG:5070,128,0,"Backup done","Backup done"
+    // MSG:5081,260,0,"Backup done.","Backup done."
+    // --------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_process_output_ok1() {
+        let br = read_file("src/runner/parser_context/data/dvd/Fish Police.log");
+        // ----------------------------------------------------------------
+        // ParserContext is expected to finalize the progress values
+        let computed = get_pvrs(br).await.pop().unwrap();
+        let expected = ProgressValueRecord::new("UnitTest", 65536, 65536, 65536);
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    // backup failed, file stops at:
+    // (ignore the last two PRGV records which reset progress back to 0%)
+    // --------------------------------------------------------------------
+    // PRGV:65536,65536,65536
     // <…>
-    // PRGV:65130,65156,65536
-    // (without final 'MSG:5080' or 'MSG:5081')
+    // PRGV:0,65536,65536
+    // PRGV:0,0,65536
+    // MSG:1011,0,1,"Using LibreDrive mode (v06.3 id=0FA242DD4D0B)","%1","Using LibreDrive mode (v06.3 id=0FA242DD4D0B)"
+    // MSG:5072,131072,1,"Backing up disc into folder \"file:///media/backup/dump/_dev/DVDVolume_c08bef3b20202020.iso\"","Backing up disc into folder \"%1\"","file:///media/backup/dump/_dev/DVDVolume_c08bef3b20202020.iso"
+    // MSG:5068,516,1,"Folder /media/backup/dump/_dev/DVDVolume_c08bef3b20202020.iso already contains a backup, please choose another folder","Folder %1 already contains a backup, please choose another folder","/media/backup/dump/_dev/DVDVolume_c08bef3b20202020.iso"
+    // MSG:5069,128,0,"Backup failed","Backup failed"
+    // MSG:5080,516,0,"Backup failed.","Backup failed."
+    // --------------------------------------------------------------------
     #[tokio::test]
     async fn test_process_output_fail1() {
+        let br = read_file("src/runner/parser_context/data/dvd/Fish Police fail.log");
+        // ----------------------------------------------------------------
+        let computed = get_pvrs(br).await.pop().unwrap();
+        let expected = ProgressValueRecord::new("UnitTest", 65536, 65536, 65536);
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
+    // backup failed, file prematurely stops at:
+    // (final 'MSG:5080' or 'MSG:5081' record is missing)
+    // --------------------------------------------------------------------
+    // PRGV:65130,65156,65536
+    // --------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_process_output_incomplete1() {
         let br = read_file("src/runner/parser_context/data/blu-ray/A Few Good Men.log");
         // ----------------------------------------------------------------
         let computed = get_pvrs(br).await.pop().unwrap();
@@ -412,31 +455,16 @@ mod tests {
     }
 
     // backup failed, file prematurely stops at:
-    // <…>
+    // (final 'MSG:5080' or 'MSG:5081' record is missing)
+    // --------------------------------------------------------------------
     // PRGV:65286,65282,65536
-    // (without final 'MSG:5080' or 'MSG:5081')
+    // --------------------------------------------------------------------
     #[tokio::test]
-    async fn test_process_output_fail2() {
+    async fn test_process_output_incomplete2() {
         let br = read_file("src/runner/parser_context/data/dvd/Otaku no Video.log");
         // ----------------------------------------------------------------
         let computed = get_pvrs(br).await.pop().unwrap();
         let expected = ProgressValueRecord::new("UnitTest", 65286, 65282, 65536);
-        // ----------------------------------------------------------------
-        assert_eq!(computed, expected);
-    }
-
-    // backup succeeded, file stops at:
-    // <…>
-    // PRGV:65535,65533,65536
-    // MSG:5070,128,0,"Backup done","Backup done"
-    // MSG:5081,260,0,"Backup done.","Backup done."
-    #[tokio::test]
-    async fn test_process_output_ok1() {
-        let br = read_file("src/runner/parser_context/data/dvd/Fish Police.log");
-        // ----------------------------------------------------------------
-        // ParserContext is expected to finalize the progress values
-        let computed = get_pvrs(br).await.pop().unwrap();
-        let expected = ProgressValueRecord::new("UnitTest", 65536, 65536, 65536);
         // ----------------------------------------------------------------
         assert_eq!(computed, expected);
     }
@@ -451,6 +479,7 @@ mod tests {
     async fn get_pvrs(br: BufReader<File>) -> Vec<ProgressValueRecord> {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<MakeMkvEvent>(256);
         let mut pc = ParserContext::new("UnitTest", tx);
+
         let mut pvrs = Vec::new();
         for line in br.lines() {
             let line = line.expect("read line from fixture");
@@ -462,6 +491,7 @@ mod tests {
                 }
             }
         }
-        return pvrs;
+
+        pvrs
     }
 }
