@@ -59,4 +59,5 @@ ignoreWords:
   - KL1OBDB4635
   - PLDS
   - dialoguer
+  - pvrs
 import: []
