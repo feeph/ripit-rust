@@ -465,11 +465,13 @@ mod tests {
 
     // --------------------------------------------------------------------
 
+    #[allow(dead_code)]
     fn read_file(filename: &str) -> std::io::BufReader<std::fs::File> {
         let file = std::fs::File::open(filename).expect("data file must exist");
         std::io::BufReader::new(file)
     }
 
+    #[allow(dead_code)]
     async fn get_pvrs(br: BufReader<File>) -> Vec<ProgressValueRecord> {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<MakeMkvEvent>(256);
         let mut pc = ParserContext::new("UnitTest", tx);

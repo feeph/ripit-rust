@@ -214,7 +214,7 @@ async fn extract(
     mut pu: ProgressUpdate,
     tx: Sender<ExtractEvent>,
     severity_map: HashMap<u32, Severity>,
-) -> std::result::Result<ExtractResult, ExtractError> {
+) -> Result<ExtractResult, ExtractError> {
     info!("extract(): source = {}", source);
 
     // ------------------------------------------------------------
@@ -355,6 +355,7 @@ async fn extract(
 struct EventParser {
     source: String,
     target: PathBuf,
+    errors: usize,
     title_count_want: usize,
     severity_map: HashMap<u32, Severity>,
 }
@@ -364,6 +365,7 @@ impl EventParser {
         EventParser {
             source: source.to_owned(),
             target: target.to_owned(),
+            errors: 0,
             title_count_want: 0,
             severity_map: severity_map.clone(),
         }
@@ -401,6 +403,7 @@ impl EventParser {
                             ExtractEvent::MsgWarn(message)
                         }
                         Some(Severity::Fail) => {
+                            self.errors += 1;
                             debug!(
                                 "[{}] MSG:{} - {}",
                                 self.source, msg_code, message.message.message
@@ -473,6 +476,11 @@ impl EventParser {
             }
         }
     }
+
+    // TODO consider using error count to detect failure
+    // fn get_error_count(&self) -> usize {
+    //     self.errors
+    // }
 
     fn get_title_count(&self) -> usize {
         self.title_count_want

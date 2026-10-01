@@ -5,7 +5,8 @@
 */
 
 // standard library imports
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 // third-party imports
@@ -58,9 +59,6 @@ pub enum UnshackleErrorReason {
     /// 'makemkvcon backup' failed with error
     BackupFailed,
 
-    /// unable to tell if the backup succeeded or failed
-    UnknownResult,
-
     /// 'makemkvcon backup' failed in an unexpected way
     InternalError,
 }
@@ -68,14 +66,6 @@ pub enum UnshackleErrorReason {
 pub struct UnshackleError {
     pub reason: UnshackleErrorReason,
     pub elapsed_secs: u64,
-}
-
-#[derive(Debug, PartialEq)]
-enum BackupState {
-    Running,
-    Success,
-    Failure,
-    Unknown,
 }
 
 /// The optical drive must be in "Ready" state. The drive's state changes
@@ -176,7 +166,7 @@ pub async fn unshackle_disc(
     let scan_mode = ScanMode::DriveOnly;
 
     let start_time = Instant::now();
-    let mut th_mkv = spawn(async move {
+    let th_mkv = spawn(async move {
         mm.backup(source_mkv, target_mkv_cpy, scan_mode, tx_mkv, logfile_mkv)
             .await
     });
@@ -186,219 +176,242 @@ pub async fn unshackle_disc(
     // is doing something weird and unexpected -> check its output
     let mut pu = ProgressUpdate::new(&source_upd, &target_upd, disc);
 
+    let source_str = drive.device.to_string_lossy();
     let severity_map = default_severity_map();
 
     // monitor progress of worker tasks and terminate
     // parse incoming events until the spawned task finishes
-    let mut result = None;
-    let mut backup_state = BackupState::Running;
-    loop {
-        tokio::select! {
-            // parse generated events
-            Some(event) = rx_mkv.recv() => {
-                match event {
-                    MakeMkvEvent::MSG(msg) => {
-                        let msg_code = msg.code;
-                        let msg_type = severity_map.get(&msg_code);
-                        let msg_text = msg.message.clone();
-                        let message = UnshackleMessage{
-                            device: drive.device.clone(),
-                            disc: disc.clone(),
-                            message: msg,
-                        };
-                        let event = match msg_type {
-                            Some(Severity::Info) => {
-                                debug!("[{}] MSG:{} - {}", drive.device.to_string_lossy(), msg_code, message.message.message);
-                                UnshackleEvent::MsgInfo(message)
-                            },
-                            Some(Severity::Warn) => {
-                                debug!("[{}] MSG:{} - {}", drive.device.to_string_lossy(), msg_code, message.message.message);
-                                UnshackleEvent::MsgWarn(message)
-                            },
-                            Some(Severity::Fail) => {
-                                debug!("[{}] MSG:{} - {}", drive.device.to_string_lossy(), msg_code, message.message.message);
-                                UnshackleEvent::MsgFail(message)
-                            },
-                            // unknown
-                            None => {
-                                UnshackleEvent::MsgWarn(message)
-                            },
-                        };
-                        tx.send(event).await.unwrap();
-                        match msg_code {
-                            // MSG:5010 - Failed to open disc
-                            5010 => {
-                                error!("{}", msg_text);
-                                backup_state = BackupState::Failure;
-                            }
-                            // MSG:5070 - Backup done
-                            // MSG:5081 - Backup done.
-                            5070 | 5081 => {
-                                if backup_state == BackupState::Failure {
-                                    // sanity check failed
-                                    error!("Inconsistent state: Saw both 'Success' and 'Failure'?!");
-                                    backup_state = BackupState::Unknown;
-                                } else {
-                                    debug!("Saw '{}' -> Marking as success.", msg_text);
-                                    backup_state = BackupState::Success;
-                                };
-                            },
-                            // MSG:5069 - Backup failed
-                            // MSG:5080 - Backup failed.
-                            5069 | 5080 => {
-                                if backup_state == BackupState::Success {
-                                    // sanity check failed
-                                    error!("Inconsistent state: Saw both 'Success' and 'Failure'?!");
-                                    backup_state = BackupState::Unknown;
-                                } else {
-                                    debug!("Saw '{}' -> Marking as failure.", msg_text);
-                                    backup_state = BackupState::Failure;
-                                };
-                            },
-                            _ => {
-                                // do nothing
-                            }
-                        }
-                    },
-                    MakeMkvEvent::DRV(_) => {
-                        // ignore all DRV events
-                    },
-                    MakeMkvEvent::TCOUNT(_) => {
-                        // ignore all TCOUNT events
-                    },
-                    MakeMkvEvent::CINFO(_) => {
-                        warn!("Found an unexpected CINFO record during 'makemkvcon backup'! Ignoring.");
-                    },
-                    MakeMkvEvent::TINFO(_) => {
-                        warn!("Found an unexpected TINFO record during 'makemkvcon backup'! Ignoring.");
-                    },
-                    MakeMkvEvent::SINFO(_) => {
-                        warn!("Found an unexpected SINFO record during 'makemkvcon backup'! Ignoring.");
-                    },
-                    MakeMkvEvent::PRGT(prgt) => {
-                        info!("[PRGT:{}] {} {}", prgt.code, prgt.name, prgt.id);
+    let mut events = Vec::new();
+    let batch_size = 128;
+    let mut ep = EventParser::new(&drive, &target, severity_map);
+    while !th_mkv.is_finished() {
+        rx_mkv.recv_many(&mut events, batch_size).await;
+        ep.parse_events(&mut events, &mut pu, &tx).await;
+    }
+    let result = th_mkv.await;
 
-                        // update 'progress total' values
-                        pu.prgt.code = prgt.code;
-                        pu.prgt.name = prgt.name.clone();
-                        pu.prgt.percentage = 0.0;
+    // process remaining events to ensure the queue is empty
+    let remaining = rx_mkv.len();
+    if remaining > 0 {
+        debug!(
+            "extract({}): Threads have finished. Draining remaining {} events.",
+            source_str, remaining
+        );
+        let _ = rx_mkv.recv_many(&mut events, remaining).await;
+        ep.parse_events(&mut events, &mut pu, &tx).await;
+    } else {
+        debug!(
+            "extract({}): Threads have finished. No remaining events.",
+            source_str
+        );
+    }
 
-                        // reset 'progress current' values
-                        pu.prgc.code = 0;
-                        pu.prgc.name = "<n/a>".to_string();
-                        pu.prgc.percentage = 0.0;
-
-                        // send event with updated values
-                        tx.send(UnshackleEvent::ProgressT(pu.clone())).await.unwrap();
-                    },
-                    MakeMkvEvent::PRGC(prgc) => {
-                        info!("[PRGC:{}] {} {}", prgc.code, prgc.name, prgc.id);
-
-                        // update 'progress current' values
-                        pu.prgc.code = prgc.code;
-                        pu.prgc.name = prgc.name.clone();
-                        pu.prgc.percentage = 0.0;
-
-                        // send event with updated values
-                        tx.send(UnshackleEvent::ProgressC(pu.clone())).await.unwrap();
-                    },
-                    MakeMkvEvent::PRGV(prgv) => {
-                        info!("[PRGV] current: {} total: {} maximum: {}", prgv.current, prgv.total, prgv.maximum);
-
-                        // update 'progress current' values
-                        pu.prgt.percentage = 100.0 * (prgv.total as f32) / (prgv.maximum as f32);
-                        pu.prgc.percentage = 100.0 * (prgv.current as f32) / (prgv.maximum as f32);
-
-                        // send event with updated values
-                        tx.send(UnshackleEvent::ProgressValue(pu.clone())).await.unwrap();
-                    },
-                }
-            },
-            // record completion and drain buffered events before returning
-            res = &mut th_mkv, if result.is_none() => {
-                result = Some(res);
-            },
-            else => {
-                break;
-            },
-        }
+    // sanity check: this must never trigger
+    // (if this condition triggers the code above does not work and skips
+    // unprocessed messages)
+    if !rx_mkv.is_empty() {
+        panic!(
+            "Internal error: Receiver queue still contains {} messages!",
+            rx_mkv.len()
+        );
     }
 
     // calculate runtime metrics and report them
     let elapsed = start_time.elapsed().as_secs();
 
-    let err_reason: UnshackleErrorReason;
-    match &result.expect("`makemkvcon backup` failed to run!") {
+    match &result {
         Ok(Ok(())) => {
             // `makemkvcon` has returned successfully but it might still
             // be a failure in disguise. Let's check in detail.
-            match backup_state {
-                BackupState::Running => {
-                    error!(
-                        "`makemkvcon backup` has run but didn't send MSG:5069, MSG:5070, MSG:5080 or MSG:5081!"
-                    );
-                    error!(
-                        "Something is seriously wrong, please check logfile '{}'.",
-                        logfile.to_string_lossy()
-                    );
-                    err_reason = UnshackleErrorReason::BackupFailed;
+            if ep.get_error_count() == 0 {
+                // enter happy path
+                debug!(
+                    "Completed backup of disc in drive '{}' after {} seconds.",
+                    source_str, elapsed
+                );
+                if eject_when_done {
+                    debug!("Ejecting disc.");
+                    drive.eject_disc();
                 }
-                BackupState::Success => {
-                    debug!(
-                        "Completed backup of disc in drive '{}' after {} seconds.",
-                        drive.device.to_string_lossy(),
-                        elapsed
-                    );
-                    if eject_when_done {
-                        debug!("Ejecting disc.");
-                        drive.eject_disc();
-                    }
 
-                    // update device state and return Ok()
-                    let fs_size = calculate_filesystem_size(&target_mkv);
-                    let result = UnshackleResult {
-                        elapsed_secs: elapsed,
-                        fs_size,
-                    };
-                    return Ok(result);
-                }
-                BackupState::Failure => {
-                    debug!("Backup task failed after {} seconds. (1)", elapsed);
-                    err_reason = UnshackleErrorReason::BackupFailed;
-                }
-                BackupState::Unknown => {
-                    error!("`makemkvcon backup` has run and claimed both success and failure?!");
-                    error!(
-                        "Something is seriously wrong, please check logfile '{}'.",
-                        logfile.to_string_lossy()
-                    );
-                    err_reason = UnshackleErrorReason::UnknownResult;
-                }
+                // update device state and return Ok()
+                let fs_size = calculate_filesystem_size(&target_mkv);
+                let result = UnshackleResult {
+                    elapsed_secs: elapsed,
+                    fs_size,
+                };
+                Ok(result)
+            } else {
+                debug!("Backup task failed after {} seconds. (1)", elapsed);
+                Err(UnshackleError {
+                    reason: UnshackleErrorReason::BackupFailed,
+                    elapsed_secs: elapsed,
+                })
             }
         }
         Ok(Err(makemkv::BackupError::DataError)) => {
             // it's unclear under which conditions this could happen
             debug!("Backup task failed after {} seconds. (DataError)", elapsed);
-            err_reason = UnshackleErrorReason::InternalError;
+            Err(UnshackleError {
+                reason: UnshackleErrorReason::InternalError,
+                elapsed_secs: elapsed,
+            })
         }
         Err(_e) => {
             // something went seriously wrong, potentially a general issue
             // with the child process, e.g. unable to execute the binary
             debug!("unshackle_disc() encountered an issue with makemkvcon's child process.");
-            err_reason = UnshackleErrorReason::InternalError;
+            Err(UnshackleError {
+                reason: UnshackleErrorReason::InternalError,
+                elapsed_secs: elapsed,
+            })
         }
     }
-
-    // update device state and return Err()
-    let error = UnshackleError {
-        reason: err_reason,
-        elapsed_secs: elapsed,
-    };
-    Err(error)
 }
 
 // ------------------------------------------------------------------------
 // private helper functions
 // ------------------------------------------------------------------------
 
-// <none>
+struct EventParser {
+    source: OpticalDrive,
+    disc: OpticalDisc,
+
+    // TODO consider using 'target'
+    #[allow(dead_code)]
+    target: PathBuf,
+
+    errors: usize,
+    severity_map: HashMap<u32, Severity>,
+}
+
+impl EventParser {
+    fn new(source: &OpticalDrive, target: &Path, severity_map: HashMap<u32, Severity>) -> Self {
+        EventParser {
+            source: source.to_owned(),
+            target: target.to_owned(),
+            disc: source.disc.clone().expect("drive must contain a disc"),
+            errors: 0,
+            severity_map: severity_map.clone(),
+        }
+    }
+
+    async fn parse_events(
+        &mut self,
+        events: &mut Vec<MakeMkvEvent>,
+        pu: &mut ProgressUpdate,
+        tx: &Sender<UnshackleEvent>,
+    ) {
+        for event in events.drain(..) {
+            match event {
+                MakeMkvEvent::MSG(msg) => {
+                    let msg_code = msg.code;
+                    let msg_type = self.severity_map.get(&msg_code);
+                    let message = UnshackleMessage {
+                        device: self.source.device.clone(),
+                        disc: self.disc.clone(),
+                        message: msg,
+                    };
+                    let event = match msg_type {
+                        Some(Severity::Info) => {
+                            debug!(
+                                "[{}] MSG:{} - {}",
+                                self.source.device.to_string_lossy(),
+                                msg_code,
+                                message.message.message
+                            );
+                            UnshackleEvent::MsgInfo(message)
+                        }
+                        Some(Severity::Warn) => {
+                            debug!(
+                                "[{}] MSG:{} - {}",
+                                self.source.device.to_string_lossy(),
+                                msg_code,
+                                message.message.message
+                            );
+                            UnshackleEvent::MsgWarn(message)
+                        }
+                        Some(Severity::Fail) => {
+                            self.errors += 1;
+                            debug!(
+                                "[{}] MSG:{} - {}",
+                                self.source.device.to_string_lossy(),
+                                msg_code,
+                                message.message.message
+                            );
+                            UnshackleEvent::MsgFail(message)
+                        }
+                        // unknown
+                        None => UnshackleEvent::MsgWarn(message),
+                    };
+                    tx.send(event).await.unwrap();
+                }
+                MakeMkvEvent::DRV(_) => {
+                    // ignore all DRV events
+                }
+                MakeMkvEvent::TCOUNT(_) => {
+                    // ignore all TCOUNT events
+                }
+                MakeMkvEvent::CINFO(_) => {
+                    warn!("Found an unexpected CINFO record during 'makemkvcon backup'! Ignoring.");
+                }
+                MakeMkvEvent::TINFO(_) => {
+                    warn!("Found an unexpected TINFO record during 'makemkvcon backup'! Ignoring.");
+                }
+                MakeMkvEvent::SINFO(_) => {
+                    warn!("Found an unexpected SINFO record during 'makemkvcon backup'! Ignoring.");
+                }
+                MakeMkvEvent::PRGT(prgt) => {
+                    info!("[PRGT:{}] {} {}", prgt.code, prgt.name, prgt.id);
+
+                    // update 'progress total' values
+                    pu.prgt.code = prgt.code;
+                    pu.prgt.name = prgt.name.clone();
+                    pu.prgt.percentage = 0.0;
+
+                    // reset 'progress current' values
+                    pu.prgc.code = 0;
+                    pu.prgc.name = "<n/a>".to_string();
+                    pu.prgc.percentage = 0.0;
+
+                    // send event with updated values
+                    tx.send(UnshackleEvent::ProgressT(pu.clone()))
+                        .await
+                        .unwrap();
+                }
+                MakeMkvEvent::PRGC(prgc) => {
+                    info!("[PRGC:{}] {} {}", prgc.code, prgc.name, prgc.id);
+
+                    // update 'progress current' values
+                    pu.prgc.code = prgc.code;
+                    pu.prgc.name = prgc.name.clone();
+                    pu.prgc.percentage = 0.0;
+
+                    // send event with updated values
+                    tx.send(UnshackleEvent::ProgressC(pu.clone()))
+                        .await
+                        .unwrap();
+                }
+                MakeMkvEvent::PRGV(prgv) => {
+                    info!(
+                        "[PRGV] current: {} total: {} maximum: {}",
+                        prgv.current, prgv.total, prgv.maximum
+                    );
+
+                    // update 'progress current' values
+                    pu.prgt.percentage = 100.0 * (prgv.total as f32) / (prgv.maximum as f32);
+                    pu.prgc.percentage = 100.0 * (prgv.current as f32) / (prgv.maximum as f32);
+
+                    // send event with updated values
+                    tx.send(UnshackleEvent::ProgressValue(pu.clone()))
+                        .await
+                        .unwrap();
+                }
+            }
+        }
+    }
+
+    fn get_error_count(&self) -> usize {
+        self.errors
+    }
+}
