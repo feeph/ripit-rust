@@ -1,4 +1,4 @@
-/*
+/*!
     command line interface for ripit-cli
 */
 

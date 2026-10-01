@@ -28,16 +28,14 @@
 
 mod event_parser;
 
-use std::any::Any;
 // standard library imports
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 // third-party imports
 use clap::{Parser, ValueHint};
-use dialoguer::Confirm;
 use indicatif_log_bridge::LogWrapper;
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
@@ -51,8 +49,7 @@ use tokio::time::{Duration, sleep};
 use crate::progress_tracker::ProgressTracker;
 use event_parser::EventParser;
 use ripit::{
-    OpticalDrive, ScanEvent, ScanMode, ScanResult, find_drives, find_matching_drive, scan_drive,
-    scan_image,
+    OpticalDrive, ScanEvent, ScanMode, find_drives, find_matching_drive, scan_drive, scan_image,
 };
 
 // ------------------------------------------------------------------------

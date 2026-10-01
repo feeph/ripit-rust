@@ -1,22 +1,24 @@
-/*
+/*!
     output parser for makemkvcon
 */
 
-mod data_objects;
+// standard library imports
+// <none>
 
+// third-party imports
+#[allow(unused_imports)]
+use log::{debug, error, info, warn};
+
+// crate-provided imports
 use crate::api::{
     DrvRecord, InfoRecord, MsgRecord, parse_cinfo_data, parse_drv_data, parse_msg_data,
     parse_prgc_data, parse_prgt_data, parse_prgv_data, parse_sinfo_data, parse_tcount_data,
     parse_tinfo_data,
 };
 
-#[allow(unused_imports)]
-use log::{debug, error, info, warn};
-
-pub use data_objects::{
-    ContentAttributes, ContentRecord, InfoRecordOut, MakeMkvConfig, MakeMkvRecord, ParsedOutput,
-    StreamAttributes, TitleAttributes, TitleRecord,
-};
+// ------------------------------------------------------------------------
+// public interface
+// ------------------------------------------------------------------------
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, PartialEq)]
@@ -58,298 +60,8 @@ pub fn parse_output_line(line: &[u8]) -> ParsedOutputLine {
 }
 
 // ------------------------------------------------------------------------
-
-pub fn convert_info_record(info: InfoRecord) -> (String, InfoRecordOut) {
-    let attr_str: String = match info.attr_val {
-        Some(x) => x.to_string(),
-        None => format!("Unknown ({})", info.attr_num),
-    };
-    let code_str: String = match info.code_val {
-        Some(x) => x.to_string(),
-        None => format!("Unknown ({})", info.code_num),
-    };
-
-    (
-        attr_str,
-        InfoRecordOut {
-            code: code_str,
-            value: info.value,
-        },
-    )
-}
-
+// tests
 // ------------------------------------------------------------------------
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum SeverityLevel {
-    Debug,
-    Error,
-    Info,
-    Warning,
-}
-
-// pub fn process_output<R: std::io::BufRead>(
-//     reader: R,
-//     min_length: usize,
-//     severity_map: &HashMap<u32, SeverityLevel>,
-// ) -> ParsedOutput {
-//     // the output returned by makemkvcon is context-sensitive and follows
-//     // this structure:
-//     // --------------------------------------------------------------------
-//     // DRV
-//     // TCOUNT
-//     // CINFO
-//     // TINFO - title #0
-//     // SINFO - streams for title #0
-//     // TINFO - title #1
-//     // SINFO - streams for title #1
-//     // --------------------------------------------------------------------
-
-//     let mut parsed_output = ParsedOutput {
-//         drives: Vec::new(),
-//         makemkv: MakeMkvRecord {
-//             version: "<n/a>".to_string(),
-//             config: MakeMkvConfig { min_length },
-//         },
-//         content: ContentRecord {
-//             info: ContentAttributes::default(),
-//             titles: BTreeMap::new(),
-//         },
-//         issues: 0,
-//         errors: 0,
-//     };
-//     let mut tc_want = 0;
-//     let mut streams = HashMap::<usize, HashMap<usize, HashMap<u32, String>>>::new();
-//     for line in reader.lines() {
-//         match line {
-//             Ok(line) => {
-//                 debug!("{}", line);
-//                 let parsed = parse_output_line(line.as_bytes());
-//                 match parsed {
-//                     ParsedOutputLine::MSG(m) => {
-//                         match severity_map.get(&m.code) {
-//                             Some(SeverityLevel::Debug) => {
-//                                 debug!("[makemkvcon] {}", m.message);
-//                             }
-//                             Some(SeverityLevel::Info) => {
-//                                 info!("[makemkvcon] {}", m.message);
-//                             }
-//                             Some(SeverityLevel::Warning) => {
-//                                 warn!("[makemkvcon] {}", m.message);
-//                                 parsed_output.issues += 1;
-//                             }
-//                             Some(SeverityLevel::Error) => {
-//                                 error!("[makemkvcon] {}", m.message);
-//                                 parsed_output.errors += 1;
-//                             }
-//                             None => {
-//                                 // unexpected msg code
-//                                 warn!("[makemkvcon] MSG:{} {}", m.code, m.message);
-//                                 parsed_output.issues += 1;
-//                             }
-//                         }
-//                         // special handling for MSG:1005
-//                         // MakeMKV v1.18.3 win(x64-release) started
-//                         if m.code == 1005 {
-//                             parsed_output.makemkv.version = m.params[0].clone();
-//                         }
-//                     }
-//                     ParsedOutputLine::DRV(d) => {
-//                         // skip empty slots "DriveStatus::NoDrive"
-//                         if d.drive_status_num != 256 {
-//                             parsed_output.drives.push(d);
-//                         };
-//                     }
-//                     ParsedOutputLine::TCOUNT(tc) => {
-//                         tc_want = tc;
-//                     }
-//                     ParsedOutputLine::CINFO(ir) => {
-//                         match ir.attr_val {
-//                             Some(ItemAttributeId::Comment) => {
-//                                 parsed_output.content.info.comment = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::Name) => {
-//                                 parsed_output.content.info.name = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::Type) => {
-//                                 parsed_output.content.info.content_type = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::MetadataLanguageCode) => {
-//                                 parsed_output.content.info.metadata_language_code = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::MetadataLanguageName) => {
-//                                 parsed_output.content.info.metadata_language_name = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::OrderWeight) => {
-//                                 parsed_output.content.info.order_weight = parse_as_usize(&ir.value);
-//                             }
-//                             Some(ItemAttributeId::PanelTitle) => {
-//                                 parsed_output.content.info.panel_title = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::TreeInfo) => {
-//                                 parsed_output.content.info.tree_info = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::VolumeName) => {
-//                                 parsed_output.content.info.volume_name = Some(ir.value);
-//                             }
-//                             // internal error
-//                             None => {
-//                                 panic!(
-//                                     "Failed to process CINFO record. (id: {}, line: {})",
-//                                     ir.attr_num, line
-//                                 );
-//                             }
-//                             // unknown value - unexpected makemkvcon output
-//                             _ => {
-//                                 todo!(
-//                                     "Implement missing attribute '{}'. (line: {})",
-//                                     ir.attr_val.unwrap(),
-//                                     line
-//                                 );
-//                             }
-//                         }
-//                     }
-//                     ParsedOutputLine::TINFO((tid, ir)) => {
-//                         // get TitleRecord reference
-//                         let tr = parsed_output.content.titles.entry(tid).or_default();
-//                         // update values
-//                         match ir.attr_val {
-//                             Some(ItemAttributeId::AngleInfo) => {
-//                                 tr.info.angle_info = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::ChapterCount) => {
-//                                 // panics if 'ChapterCount' can't be parsed as a number
-//                                 tr.info.chapter_count = parse_as_usize(&ir.value).unwrap();
-//                             }
-//                             Some(ItemAttributeId::Comment) => {
-//                                 tr.info.comment = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::DiskSize) => {
-//                                 tr.info.disk_size = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::DiskSizeBytes) => {
-//                                 // panics if 'DiskSizeBytes' can't be parsed as a number
-//                                 tr.info.disk_size_bytes = parse_as_usize(&ir.value).unwrap();
-//                             }
-//                             Some(ItemAttributeId::Duration) => {
-//                                 tr.info.duration = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::MetadataLanguageCode) => {
-//                                 tr.info.metadata_language_code = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::MetadataLanguageName) => {
-//                                 tr.info.metadata_language_name = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::Name) => {
-//                                 tr.info.name = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::OutputFileName) => {
-//                                 tr.info.output_file_name = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::OrderWeight) => {
-//                                 // panics if 'OrderWeight' can't be parsed as a number
-//                                 tr.info.order_weight = parse_as_usize(&ir.value).unwrap();
-//                             }
-//                             Some(ItemAttributeId::OriginalTitleId) => {
-//                                 tr.info.original_title_id = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::PanelTitle) => {
-//                                 tr.info.panel_title = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::SourceFileName) => {
-//                                 tr.info.source_file_name = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::SegmentsCount) => {
-//                                 // panics if 'SegmentsCount' can't be parsed as a number
-//                                 tr.info.segments_count = parse_as_usize(&ir.value).unwrap();
-//                             }
-//                             Some(ItemAttributeId::SegmentsMap) => {
-//                                 tr.info.segments_map = Some(ir.value);
-//                             }
-//                             Some(ItemAttributeId::TreeInfo) => {
-//                                 tr.info.tree_info = Some(ir.value);
-//                             }
-//                             // internal error
-//                             None => {
-//                                 panic!(
-//                                     "Failed to process TINFO record. (id: {}, title: {}, line: {})",
-//                                     ir.attr_num, tid, line
-//                                 );
-//                             }
-//                             // unknown value - unexpected makemkvcon output
-//                             _ => {
-//                                 todo!(
-//                                     "Implement missing attribute '{}'. (title: {}, line: {})",
-//                                     ir.attr_val.unwrap(),
-//                                     tid,
-//                                     line
-//                                 );
-//                             }
-//                         }
-//                     }
-//                     ParsedOutputLine::SINFO((tid, sid, ir)) => {
-//                         let tr = streams.entry(tid).or_default();
-//                         let sr = tr.entry(sid).or_default();
-//                         sr.insert(ir.attr_num, ir.value.clone());
-//                     }
-//                 }
-//             }
-//             Err(e) => error!("Error reading line: {}", e),
-//         }
-//     }
-
-//     for (tid, title) in streams.iter() {
-//         for (sid, stream) in title.iter() {
-//             debug!("Processing title {} / stream {}.", tid, sid);
-//             match parse_stream_record(stream) {
-//                 Some(Stream::Audio(x)) => {
-//                     parsed_output
-//                         .content
-//                         .titles
-//                         .entry(*tid)
-//                         .or_default()
-//                         .streams
-//                         .audio
-//                         .insert(*sid, x);
-//                 }
-//                 Some(Stream::Subtitle(x)) => {
-//                     parsed_output
-//                         .content
-//                         .titles
-//                         .entry(*tid)
-//                         .or_default()
-//                         .streams
-//                         .subtitles
-//                         .insert(*sid, x);
-//                 }
-//                 Some(Stream::Video(x)) => {
-//                     parsed_output
-//                         .content
-//                         .titles
-//                         .entry(*tid)
-//                         .or_default()
-//                         .streams
-//                         .video
-//                         .insert(*sid, x);
-//                 }
-//                 None => {
-//                     panic!("Detected an unknown stream type!");
-//                 }
-//             }
-//         }
-//     }
-
-//     let tc_have = parsed_output.content.titles.len();
-//     if tc_have != tc_want {
-//         error!(
-//             "TCOUNT and actual title count differ! (TCOUNT: {}, titles: {})",
-//             tc_want, tc_have
-//         );
-//         parsed_output.errors += 1;
-//     }
-
-//     parsed_output
-// }
 
 // validate the return type to ensure the match condition is working as
 // expected (ignore the encapsulated value, it's already unit-tested)

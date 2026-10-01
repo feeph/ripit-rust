@@ -1,4 +1,4 @@
-/*
+/*!
     abstraction layer for executing the 'makemkvcon' command and parsing
     its output while its running
 
