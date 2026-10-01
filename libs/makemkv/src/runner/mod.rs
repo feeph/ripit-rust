@@ -301,11 +301,17 @@ impl ParserContext {
                 // PRGC:3104,0,"Decrypting data"
                 // PRGV:0,36086,65536
                 // <…>
-                // PRGV:65536,43137,65536
                 // PRGV:65536,43967,65536     <-- PRGT stops at (43967) 67%
                 // MSG:5011,0,0,"Operation successfully completed","Operation successfully completed"
                 // --------------------------------------------------------
-                if msg.code == 5011 && self.prgt_last < self.prg_max {
+                // PRGC:5046,454,"Copying file"
+                // PRGV:0,7377,65536
+                // <…>
+                // PRGV:65535,65525,65536     <-- PRGT stops at (65525) 99%
+                // MSG:5070,128,0,"Backup done","Backup done"
+                // MSG:5081,260,0,"Backup done.","Backup done."
+                // --------------------------------------------------------
+                if [5011, 5070, 5081].contains(&msg.code) && self.prgt_last < self.prg_max {
                     self.prgt_last = self.prg_max;
                     let prgv = ProgressValueRecord::new(
                         &self.source,
@@ -573,17 +579,6 @@ impl Drop for ParserContext {
         }
         if self.prgt_last < self.prg_max {
             warn!("prgt_last < prg_max: {} < {}", self.prgt_last, self.prg_max);
-        }
-        // ensure all PRGT/PRGC records are finalized
-        if self.prgt_last < self.prg_max || self.prgc_last < self.prg_max {
-            let prgv =
-                ProgressValueRecord::new(&self.source, self.prg_max, self.prg_max, self.prg_max);
-            // need to call an asynchronous function from synchronous block
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            let _ = rt.block_on(async { self.tx.send(MakeMkvEvent::PRGV(prgv)).await });
         }
     }
 }
