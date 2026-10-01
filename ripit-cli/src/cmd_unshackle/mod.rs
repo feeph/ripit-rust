@@ -200,7 +200,8 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
     let mut jobs_done = 0;
     let mut jobs_failed = 0;
     loop {
-        // TODO  test if new workers need to be spawned
+        // TODO test if new workers need to be spawned
+        // TODO add retry-logic in case a backup job fails
 
         tokio::select! {
             // batched processing of generated events to reduce overhead
@@ -362,6 +363,8 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
         if workers.is_empty() {
             break;
         } else {
+            // add an artificial delay to prevent "100% CPU-busy" if there
+            // are no messages and we're permanently looping
             sleep(Duration::from_millis(500)).await;
         }
     }

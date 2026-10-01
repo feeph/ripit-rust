@@ -10,6 +10,7 @@ mod stage;
 
 // standard library imports
 use std::collections::HashMap;
+use std::time::Duration;
 
 // third-party imports
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -61,6 +62,7 @@ impl ProgressTracker {
             .add(ProgressBar::new(length))
             .with_style(self.style.clone())
             .with_message(message);
+        enable_steady_ticks(&pb);
 
         self.pb.insert(id.to_owned(), pb);
     }
@@ -81,6 +83,7 @@ impl ProgressTracker {
                 .insert_after(pb_parent, ProgressBar::new(length))
                 .with_style(self.style.clone())
                 .with_message(message);
+            enable_steady_ticks(&pb);
 
             self.pb.insert(id.to_owned(), pb);
             Ok(())
@@ -136,4 +139,13 @@ fn create_progress_style() -> ProgressStyle {
         .template("{spinner:.green} {msg:80} [{bar:20.cyan/blue}] {elapsed_precise}")
         .unwrap()
         .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+}
+
+fn enable_steady_ticks(pb: &ProgressBar) {
+    // Ensure redraws (timer updates) are performed even if no update is
+    // sent. This is especially important for `makemkvcon backup` since
+    // this operation is likely to have have significant time before tween
+    // updates. (for Blu-Ray: more than 10 seconds per 1% increase)
+    let tick_rate = Duration::from_millis(500);
+    pb.enable_steady_tick(tick_rate);
 }
