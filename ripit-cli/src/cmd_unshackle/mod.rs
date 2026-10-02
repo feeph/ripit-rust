@@ -165,10 +165,10 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
         let disc_name = disc.get_name();
         let disc_type = disc.get_type();
         pt.send_text_message(&format!(
-            "[{}] Starting backup of {} '{}'.",
-            drive.device.to_string_lossy(),
+            "Starting backup of {} '{}' in drive '{}'.",
             disc_type,
-            disc_name
+            disc_name,
+            drive.device.to_string_lossy(),
         ));
         let mm_mkv = mm.clone();
         let source_mkv = drive.clone();
