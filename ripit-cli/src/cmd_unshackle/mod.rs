@@ -306,16 +306,6 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                     }
                 }
             },
-            // <legacy code>
-            // record completion and drain buffered events before returning
-            // res = &mut th, if result.is_none() => {
-            //     result = Some(res);
-            // },
-            // res = &mut th_mkv => {
-            //     result = res;
-            //     break;
-            // }
-            // </legacy code>
             else => {
                 pt.send_text_message("tokio::select!(): break triggered");
                 break;
