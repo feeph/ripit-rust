@@ -98,7 +98,7 @@ pub async fn run_makemkvcon(
     // makemkvcon has finished - ensure all remaining events are processed
     let remaining = rx_mkv.len();
     if remaining > 0 {
-        rx_mkv.recv_many(&mut lines, batch_size).await;
+        rx_mkv.recv_many(&mut lines, remaining).await;
         for line in lines.drain(..) {
             pc.process_output(&line).await;
         }
