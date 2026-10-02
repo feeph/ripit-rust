@@ -86,7 +86,6 @@ pub async fn unshackle_disc(
     );
 
     let source_mkv = format!("disc:{}", drive.index);
-    let source_upd = source_mkv.clone();
     info!("unshackle_disc(): source_mkv {}", source_mkv);
 
     // ------------------------------------------------------------
@@ -171,12 +170,13 @@ pub async fn unshackle_disc(
             .await
     });
 
+    let device_str = drive.device.to_string_lossy();
+
     // PRGT and PRGC always come before PRGV
     // if at some point "<unknown>" shows up then this indicates makemkvcon
     // is doing something weird and unexpected -> check its output
-    let mut pu = ProgressUpdate::new(&source_upd, &target_upd, disc);
+    let mut pu = ProgressUpdate::new(&device_str, &target_upd, disc);
 
-    let source_str = drive.device.to_string_lossy();
     let severity_map = default_severity_map();
 
     // monitor progress of worker tasks and terminate
@@ -195,14 +195,14 @@ pub async fn unshackle_disc(
     if remaining > 0 {
         debug!(
             "extract({}): Threads have finished. Draining remaining {} events.",
-            source_str, remaining
+            device_str, remaining
         );
         let _ = rx_mkv.recv_many(&mut events, remaining).await;
         ep.parse_events(&mut events, &mut pu, &tx).await;
     } else {
         debug!(
             "extract({}): Threads have finished. No remaining events.",
-            source_str
+            device_str
         );
     }
 
@@ -227,7 +227,7 @@ pub async fn unshackle_disc(
                 // enter happy path
                 debug!(
                     "Completed backup of disc in drive '{}' after {} seconds.",
-                    source_str, elapsed
+                    device_str, elapsed
                 );
                 if eject_when_done {
                     debug!("Ejecting disc.");
