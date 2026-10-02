@@ -341,6 +341,13 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                     );
                     pt.send_text_message(&message);
                     jobs_failed += 1;
+
+                    // clear progress bars relating to the failed job
+                    // (ignore if progress bar does not exist)
+                    let pb_prgt_id = error.get_device_id();
+                    let pb_prgc_id = error.get_stage_id();
+                    let _ = pt.clear_progress_bar(&pb_prgc_id);
+                    let _ = pt.clear_progress_bar(&pb_prgt_id);
                 }
             }
         }

@@ -64,8 +64,24 @@ pub enum UnshackleErrorReason {
 }
 
 pub struct UnshackleError {
+    source: String,
+    prgt_code: u32,
+    #[allow(dead_code)]
+    prgc_code: u32,
     pub reason: UnshackleErrorReason,
     pub elapsed_secs: u64,
+}
+
+impl UnshackleError {
+    // value must match ProgressTracker
+    pub fn get_device_id(&self) -> String {
+        self.source.clone()
+    }
+
+    // value must match ProgressTracker
+    pub fn get_stage_id(&self) -> String {
+        format!("{}_{}", self.source, self.prgt_code)
+    }
 }
 
 /// The optical drive must be in "Ready" state. The drive's state changes
@@ -99,6 +115,9 @@ pub async fn unshackle_disc(
         None => {
             // makes no sense to continue without a disc
             return Err(UnshackleError {
+                source: drive.device.to_string_lossy().to_string(),
+                prgt_code: 0,
+                prgc_code: 0,
                 reason: UnshackleErrorReason::NoDisc,
                 elapsed_secs: 0,
             });
@@ -244,6 +263,9 @@ pub async fn unshackle_disc(
             } else {
                 debug!("Backup task failed after {} seconds. (1)", elapsed);
                 Err(UnshackleError {
+                    source: drive.device.to_string_lossy().to_string(),
+                    prgt_code: pu.prgt.code,
+                    prgc_code: pu.prgc.code,
                     reason: UnshackleErrorReason::BackupFailed,
                     elapsed_secs: elapsed,
                 })
@@ -253,6 +275,9 @@ pub async fn unshackle_disc(
             // it's unclear under which conditions this could happen
             debug!("Backup task failed after {} seconds. (DataError)", elapsed);
             Err(UnshackleError {
+                source: drive.device.to_string_lossy().to_string(),
+                prgt_code: pu.prgt.code,
+                prgc_code: pu.prgc.code,
                 reason: UnshackleErrorReason::InternalError,
                 elapsed_secs: elapsed,
             })
@@ -262,6 +287,9 @@ pub async fn unshackle_disc(
             // with the child process, e.g. unable to execute the binary
             debug!("unshackle_disc() encountered an issue with makemkvcon's child process.");
             Err(UnshackleError {
+                source: drive.device.to_string_lossy().to_string(),
+                prgt_code: pu.prgt.code,
+                prgc_code: pu.prgc.code,
                 reason: UnshackleErrorReason::InternalError,
                 elapsed_secs: elapsed,
             })
