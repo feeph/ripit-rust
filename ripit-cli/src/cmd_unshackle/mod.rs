@@ -107,7 +107,7 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
 
     let mut pt = ProgressTracker::new();
 
-    pt.send_text_message("I: Detecting available drives.");
+    pt.send_text_message("Detecting available drives.");
 
     let scan_mode = ScanMode::DriveAndDisc;
     let drives_have = find_drives(mm.to_owned(), scan_mode)
@@ -127,7 +127,7 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
         device_names.sort();
         let device_names_str = device_names.join(" ");
         pt.send_text_message(&format!(
-            "I: Found {} drives: {}",
+            "Found {} drives: {}",
             drives_have.len(),
             device_names_str
         ));
@@ -334,7 +334,7 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                     let write_rate = size_mb / (elapsed as f32);
                     let device_id = drive.device.to_string_lossy();
                     let message = format!(
-                        "[{}] Backup task completed backup after {} seconds. ({:.1}GiB written, {:.1}MiB/s)",
+                        "🗸 [{}] Backup task completed backup after {} seconds. ({:.1}GiB written, {:.1}MiB/s)",
                         device_id, elapsed, size_gb, write_rate
                     );
                     pt.send_text_message(&message);
@@ -345,7 +345,7 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                 }
                 Err(error) => {
                     let message = format!(
-                        "[{}] Backup task failed: {:#?}",
+                        "✗ [{}] Backup task failed: {:#?}",
                         drive.device.to_string_lossy(),
                         error.reason
                     );
