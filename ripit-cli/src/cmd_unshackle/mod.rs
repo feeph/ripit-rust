@@ -330,14 +330,15 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
             // TODO do we need to drain potentially remaining events?
             match worker.await.unwrap() {
                 Ok(result) => {
-                    let elapsed = result.elapsed_secs;
+                    let elapsed_min = result.elapsed_secs / 60;
+                    let elapsed_sec = result.elapsed_secs % 60;
                     let size_mb = (result.fs_size as f32) / 1024u32.pow(2) as f32;
                     let size_gb = (result.fs_size as f32) / 1024u32.pow(3) as f32;
-                    let write_rate = size_mb / (elapsed as f32);
+                    let write_rate = size_mb / (result.elapsed_secs as f32);
                     let device_id = drive.device.to_string_lossy();
                     let message = format!(
-                        "🗸 [{}] Backup task completed backup after {} seconds. ({:.1}GiB written, {:.1}MiB/s)",
-                        device_id, elapsed, size_gb, write_rate
+                        "🗸 [{}] Backup task completed backup after {} minutes {} seconds. ({:.1}GiB written, {:.1}MiB/s)",
+                        device_id, elapsed_min, elapsed_sec, size_gb, write_rate
                     );
                     pt.send_text_message(&message);
                     jobs_done += 1;
