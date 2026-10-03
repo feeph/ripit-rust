@@ -21,11 +21,13 @@ use std::path::PathBuf;
 
 // third-party imports
 use clap::{Parser, ValueHint};
+use indicatif_log_bridge::LogWrapper;
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
 use serde::Serialize;
 
 // crate-provided imports
+use crate::progress_tracker::ProgressTracker;
 use makemkv::ScanMode;
 use ripit::{find_drives, find_matching_drives};
 
@@ -75,7 +77,20 @@ pub struct CmdArgs {
 ///   'WARGAMES' (id: 5a6b874e20574152) [Blu-Ray] [AACS]
 /// ```
 pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
-    crate::logging::init_logger(args.global_opts.log_level);
+    // need to use indicatif_log_bridge otherwise logged messages would
+    // messes up indicatif's output
+    // FIXME restore ability to use 'args.global_opts.log_level'
+    let logger =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).build();
+    let level = logger.filter();
+
+    let pt = ProgressTracker::new();
+
+    // augment MultiProgress with indicatif-log-bridge to avoid
+    // messages emitted by log-crate breaking indicatif's output
+    // <https://crates.io/crates/indicatif-log-bridge>
+    LogWrapper::new(pt.get_mp(), logger).try_init().unwrap();
+    log::set_max_level(level);
 
     let scan_mode = if args.disable_scan {
         ScanMode::DriveOnly

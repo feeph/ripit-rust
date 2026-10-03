@@ -10,7 +10,6 @@ mod cmd_drives;
 mod cmd_extract;
 mod cmd_scan;
 mod cmd_unshackle;
-mod logging;
 mod os_utils;
 mod progress_tracker;
 
