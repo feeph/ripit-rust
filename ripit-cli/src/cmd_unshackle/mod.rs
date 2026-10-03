@@ -37,6 +37,7 @@ use std::path::PathBuf;
 
 // third-party imports
 use clap::{Parser, ValueHint};
+use indicatif_log_bridge::LogWrapper;
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
 use tokio::spawn;
@@ -103,9 +104,20 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
     // - per 'makemkvcon backup' process: half of a CPU core (Celeron N3450)
     // - for 'ripit-cli': less than one percent
 
-    crate::logging::init_logger(args.global_opts.log_level);
+    // need to use indicatif_log_bridge otherwise logged messages would
+    // messes up indicatif's output
+    // FIXME restore ability to use 'args.global_opts.log_level'
+    let logger =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).build();
+    let level = logger.filter();
 
     let mut pt = ProgressTracker::new();
+
+    // augment MultiProgress with indicatif-log-bridge to avoid
+    // messages emitted by log-crate breaking indicatif's output
+    // <https://crates.io/crates/indicatif-log-bridge>
+    LogWrapper::new(pt.get_mp(), logger).try_init().unwrap();
+    log::set_max_level(level);
 
     pt.send_text_message("Detecting available drives.");
 
