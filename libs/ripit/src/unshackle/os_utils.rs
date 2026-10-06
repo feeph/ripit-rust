@@ -13,7 +13,7 @@
 // standard library imports
 use std::path::PathBuf;
 use std::thread::sleep;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 // third-party imports
 #[allow(unused_imports)]
