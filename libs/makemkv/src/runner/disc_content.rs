@@ -78,8 +78,8 @@ pub struct DiscContent {
     pub titles: BTreeMap<usize, TitleRecord>,
 }
 
-impl DiscContent {
-    pub fn new() -> Self {
+impl Default for DiscContent {
+    fn default() -> Self {
         Self {
             info: ContentAttributes::new(),
             titles: BTreeMap::new(),
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_update_disc_attributes() {
-        let mut dc = DiscContent::new();
+        let mut dc = DiscContent::default();
         let _ = dc.update_disc_attribute(&InfoRecord::new(1, 6206, "DVD disc"));
         let _ = dc.update_disc_attribute(&InfoRecord::new(2, 0, "Disc 1"));
         // ----------------------------------------------------------------

@@ -56,7 +56,7 @@ impl ParserContext {
     pub fn new(source: &str, tx: Sender<MakeMkvEvent>) -> Self {
         ParserContext {
             sac: SacType::new(),
-            dc: DiscContent::new(),
+            dc: DiscContent::default(),
             tx,
             source: source.to_string(),
             title_count: 0,

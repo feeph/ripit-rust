@@ -397,7 +397,7 @@ impl MakeMkvMock {
         // the correct type -> create an intermediate stream attribute cache
         let mut sac = HashMap::<usize, HashMap<usize, HashMap<u32, String>>>::new();
 
-        let mut dc = DiscContent::new();
+        let mut dc = DiscContent::default();
         let mut title_count = 0;
         let source = "mocked";
         let mut prgv_last = crate::api::ProgressValueRecord::new(source, 0, 0, 0);
