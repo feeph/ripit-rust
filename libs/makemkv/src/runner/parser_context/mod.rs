@@ -410,6 +410,25 @@ mod tests {
         assert_eq!(computed, expected);
     }
 
+    // backup succeeded, file stops at:
+    // --------------------------------------------------------------------
+    // PRGV:65535,65450,65536
+    // MSG:5070,128,0,"Backup done","Backup done"
+    // MSG:5081,260,0,"Backup done.","Backup done."
+    // --------------------------------------------------------------------
+    // (basically the same as …_ok1() with different numbers)
+    #[tokio::test]
+    async fn test_process_output_ok2() {
+        let br =
+            read_file("src/runner/parser_context/data/blu-ray/BEING_J_MALKOVICH_G51_A105AB2C.log");
+        // ----------------------------------------------------------------
+        // ParserContext is expected to finalize the progress values
+        let computed = get_pvrs(br).await.pop().unwrap();
+        let expected = ProgressValueRecord::new("UnitTest", 65536, 65536, 65536);
+        // ----------------------------------------------------------------
+        assert_eq!(computed, expected);
+    }
+
     // backup failed, file stops at:
     // (ignore the last two PRGV records which reset progress back to 0%)
     // --------------------------------------------------------------------
