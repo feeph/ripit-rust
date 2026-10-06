@@ -18,13 +18,11 @@ use std::fmt::Display;
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct Dvd {
     pub name: String,
-    pub uid: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct HdDvd {
     pub name: String,
-    pub uid: String,
 }
 
 // AACS and BD+ (BDSVM) can be applied simultaneously on the same disc
@@ -32,11 +30,6 @@ pub struct HdDvd {
 pub struct BluRay {
     /// The disc's volume name (label).
     pub name: String,
-
-    /// The disc's unique ID.
-    ///
-    /// (The value depends on the operating system.)
-    pub uid: String,
 
     /// Advanced Access Content System
     ///
@@ -100,7 +93,6 @@ mod tests {
     fn test_format_dvd() {
         let disc = OpticalDisc::Dvd(Dvd {
             name: "DVDVolume".to_string(),
-            uid: "deadbeef".to_string(),
         });
         // ----------------------------------------------------------------
         let computed = disc.to_string();
@@ -113,7 +105,6 @@ mod tests {
     fn test_format_hd_dvd() {
         let disc = OpticalDisc::HdDvd(HdDvd {
             name: "Wrong Horse".to_string(),
-            uid: "cafebabe".to_string(),
         });
         // ----------------------------------------------------------------
         let computed = disc.to_string();
@@ -126,7 +117,6 @@ mod tests {
     fn test_format_bluray() {
         let disc = OpticalDisc::BluRay(BluRay {
             name: "Locked Down".to_string(),
-            uid: "facefeed".to_string(),
             has_aacs: true,
             has_bdsvm: true,
         });

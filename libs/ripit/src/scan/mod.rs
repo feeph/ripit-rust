@@ -152,7 +152,6 @@ pub async fn scan_image(
                 .expect("no filename?")
                 .to_string_lossy()
                 .to_string(),
-            uid: "deadbeef".to_string(),
         })
     } else if source.is_dir() {
         OpticalDisc::BluRay(BluRay {
@@ -161,7 +160,6 @@ pub async fn scan_image(
                 .expect("no filename?")
                 .to_string_lossy()
                 .to_string(),
-            uid: "deadbeef".to_string(),
             has_aacs: false,
             has_bdsvm: false,
         })

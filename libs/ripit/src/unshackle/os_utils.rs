@@ -12,6 +12,8 @@
 
 // standard library imports
 use std::path::PathBuf;
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 // third-party imports
 #[allow(unused_imports)]
@@ -23,6 +25,11 @@ use log::{debug, error, info, warn};
 // ------------------------------------------------------------------------
 // public interface
 // ------------------------------------------------------------------------
+
+#[derive(Debug, PartialEq)]
+pub enum VolumeError {
+    NoMoreRetries,
+}
 
 /// provide an Operating System-agnostic way to determine a unique disc id
 ///
@@ -41,22 +48,31 @@ use log::{debug, error, info, warn};
 /// - on Linux: uses `blkid`
 /// - on MacOS: not implemented
 /// - on Windows: uses `GetVolumeInformationW()`
-pub fn get_volume_id(path: &PathBuf) -> Option<String> {
-    #[cfg(target_os = "linux")]
-    if let Some(block_id) = get_blkid(path) {
-        return Some(block_id.uuid);
+pub fn get_volume_id(path: &PathBuf) -> Result<String, VolumeError> {
+    let sleep_time = Duration::from_millis(500);
+
+    // try multiple times
+    // (the first call may wake up an idle drive)
+    for _ in 1..3 {
+        #[cfg(target_os = "linux")]
+        if let Some(block_id) = get_blkid(path) {
+            return Ok(block_id.uuid);
+        }
+
+        #[cfg(target_os = "windows")]
+        if let Some(volume_info) = get_volume_info(path) {
+            return Ok(volume_info.volume_serial);
+        }
+
+        // ToDo implement for MacOS
+        // #[cfg(target_os = "macos")]
+        // ...
+
+        sleep(sleep_time);
     }
 
-    #[cfg(target_os = "windows")]
-    if let Some(volume_info) = get_volume_info(path) {
-        return Some(volume_info.volume_serial);
-    }
-
-    // ToDo implement for MacOS
-    // #[cfg(target_os = "macos")]
-    // ...
-
-    None
+    // exhausted all tries, giving up
+    Err(VolumeError::NoMoreRetries)
 }
 
 #[allow(dead_code)]

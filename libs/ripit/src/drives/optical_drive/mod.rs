@@ -4,12 +4,9 @@
 
 mod eject_disc;
 mod optical_disc;
-mod os_utils;
 
 // standard library imports
 use std::path::PathBuf;
-use std::thread::sleep;
-use std::time::Duration;
 
 // third-party imports
 // <none>
@@ -83,39 +80,17 @@ impl From<&DrvRecord> for OpticalDrive {
         let index = dr.index;
         let is_enabled = dr.is_enabled;
 
-        let sleep_time = Duration::from_millis(500);
-        let mut result = None;
-        // try multiple times
-        // (the first call may wake up an idle drive)
-        for _ in 1..3 {
-            match os_utils::get_volume_id(&device) {
-                Some(uid) => {
-                    result = Some(uid);
-                    break;
-                }
-                None => {
-                    sleep(sleep_time);
-                }
-            }
-        }
-        match result {
-            Some(uid) => {
-                let disc = parse_disc_type(&dr.volume_name, &uid, &dr.content_type);
-                OpticalDrive {
-                    device,
-                    model,
-                    index,
-                    is_enabled,
-                    disc,
-                }
-            }
-            None => OpticalDrive {
-                device,
-                model,
-                index,
-                is_enabled,
-                disc: None,
-            },
+        let disc = match dr.drive_status {
+            Some(_) => parse_disc_type(&dr.volume_name, &dr.content_type),
+            None => None,
+        };
+
+        OpticalDrive {
+            device,
+            model,
+            index,
+            is_enabled,
+            disc,
         }
     }
 }
@@ -132,21 +107,18 @@ impl From<DrvRecord> for OpticalDrive {
 // helper functions
 // ------------------------------------------------------------------------
 
-fn parse_disc_type(name: &str, uid: &str, content_type: &ContentType) -> Option<OpticalDisc> {
+fn parse_disc_type(name: &str, content_type: &ContentType) -> Option<OpticalDisc> {
     if content_type.has_dvd_files {
         Some(OpticalDisc::Dvd(Dvd {
             name: name.to_owned(),
-            uid: uid.to_owned(),
         }))
     } else if content_type.has_hddvd_files {
         Some(OpticalDisc::HdDvd(HdDvd {
             name: name.to_owned(),
-            uid: uid.to_owned(),
         }))
     } else if content_type.has_bluray_files {
         Some(OpticalDisc::BluRay(BluRay {
             name: name.to_owned(),
-            uid: uid.to_owned(),
             has_aacs: content_type.has_aacs_files,
             has_bdsvm: content_type.has_bdsvm_files,
         }))
@@ -195,7 +167,6 @@ mod tests {
             is_enabled: 999,
             disc: Some(OpticalDisc::Dvd(Dvd {
                 name: "OTAKU_NO_VIDEO".to_string(),
-                uid: "3ed3dd1f5f5f5f4d".to_string(),
             })),
         };
         // ----------------------------------------------------------------
@@ -215,7 +186,6 @@ mod tests {
             is_enabled: 999,
             disc: Some(OpticalDisc::BluRay(BluRay {
                 name: "LOGICAL_VOLUME_ID".to_string(),
-                uid: "091716445f464557".to_string(),
                 has_aacs: true,
                 has_bdsvm: false,
             })),
