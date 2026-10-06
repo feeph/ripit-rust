@@ -11,7 +11,7 @@
 */
 
 // standard library imports
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -94,7 +94,7 @@ pub struct VolumeInfo {
 // File System Name: UDF
 // ------------------------------------------------------------------------
 #[cfg(target_os = "windows")]
-pub fn get_volume_info(path: &PathBuf) -> Option<VolumeInfo> {
+pub fn get_volume_info(path: &Path) -> Option<VolumeInfo> {
     use winapi::shared::minwindef::BOOL;
     use winapi::um::fileapi::GetVolumeInformationW;
 
@@ -165,7 +165,7 @@ pub struct BlockId {
 // TYPE=udf
 // ------------------------------------------------------------------------
 #[cfg(target_os = "linux")]
-pub fn get_blkid(path: &PathBuf) -> Option<BlockId> {
+pub fn get_blkid(path: &Path) -> Option<BlockId> {
     use std::process::Command;
 
     let path_str = &path.to_string_lossy().to_string();
