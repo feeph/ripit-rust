@@ -11,7 +11,7 @@
 */
 
 // standard library imports
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -48,7 +48,7 @@ pub enum VolumeError {
 /// - on Linux: uses `blkid`
 /// - on MacOS: not implemented
 /// - on Windows: uses `GetVolumeInformationW()`
-pub fn get_volume_id(path: &PathBuf) -> Result<String, VolumeError> {
+pub fn get_volume_id(path: &Path) -> Result<String, VolumeError> {
     let sleep_time = Duration::from_millis(500);
 
     // try multiple times

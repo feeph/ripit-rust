@@ -27,7 +27,7 @@ fn eject_disc_linux(source: &std::path::Path) {
         match result {
             Ok(status) => {
                 if status.success() {
-                    info!("Ejected medium from '{}' using `eject`.", &source_str);
+                    info!("Ejected medium from '{}' using `eject`.", source_str);
                 } else {
                     warn!("Linux eject command returned status {:?}.", status.code());
                 }
@@ -37,7 +37,7 @@ fn eject_disc_linux(source: &std::path::Path) {
             }
         }
     } else {
-        warn!("Unable to eject, source '{}' is not a device!", &source_str);
+        warn!("Unable to eject, source '{}' is not a device!", source_str);
     };
 }
 
@@ -70,7 +70,7 @@ fn eject_disc_windows(source: &std::path::Path) {
         match result {
             Ok(status) => {
                 if status.success() {
-                    info!("Ejected medium from drive '{}'.", &source_str);
+                    info!("Ejected medium from drive '{}'.", source_str);
                 } else {
                     warn!(
                         "PowerShell eject command returned status {:?}.",
@@ -85,7 +85,7 @@ fn eject_disc_windows(source: &std::path::Path) {
     } else {
         warn!(
             "Unable to eject, source '{}' is not a drive letter!",
-            &source_str
+            source_str
         );
     };
 }
