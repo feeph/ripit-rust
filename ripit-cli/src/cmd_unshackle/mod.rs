@@ -41,7 +41,7 @@ use indicatif_log_bridge::LogWrapper;
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
 use tokio::spawn;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, Receiver};
 use tokio::time::{Duration, sleep};
 
 // crate-provided imports
@@ -82,28 +82,29 @@ pub struct CmdArgs {
     global_opts: crate::GlobalOpts,
 }
 
-pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
-    // When working with an optical drive we're 100% I/O bound. A DVD is
-    // read at ~10MiB/s. A Blu-Ray allows for slightly faster reads at
-    // ~20MiB/s. This is the bottle neck. Everything else is kind of
-    // irrelevant since it's very likely to be fast enough.
-    //
-    // The only way to reduce runtime is to use multiple optical drives and
-    // run multiple extractions in parallel. Up to 6 drives are going to
-    // be fine on any reasonably modern hardware.
-    //
-    // goal: run multiple extractions in parallel
-    // design:
-    // - using a dedicated process for each instance of 'makemkvcon'
-    //   (mode: concurrent and parallel)
-    // - using threads for the internal logic while makemkvcon is running
-    //   in the background
-    //   (mode: concurrent, not parallel)
-    //
-    // CPU usage:
-    // - per 'makemkvcon backup' process: half of a CPU core (Celeron N3450)
-    // - for 'ripit-cli': less than one percent
+/**
+    When working with an optical drive we're 100% I/O bound. A DVD is
+    read at ~10MiB/s. A Blu-Ray allows for slightly faster reads at
+    ~20MiB/s. This is the bottle neck. Everything else is kind of
+    irrelevant since it's very likely to be fast enough.
 
+    The only way to reduce runtime is to use multiple optical drives and
+    run multiple extractions in parallel. Up to 6 drives are going to
+    be fine on any reasonably modern hardware.
+
+    goal: run multiple extractions in parallel
+    design:
+    - using a dedicated process for each instance of 'makemkvcon'
+      (mode: concurrent and parallel)
+    - using threads for the internal logic while makemkvcon is running in
+      the background
+      (mode: concurrent, not parallel)
+
+    CPU usage:
+    - per 'makemkvcon backup' process: half of a CPU core (Celeron N3450)
+    - for 'ripit-cli': less than one percent
+**/
+pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
     // need to use indicatif_log_bridge otherwise logged messages would
     // messes up indicatif's output
     // FIXME restore ability to use 'args.global_opts.log_level'
@@ -206,15 +207,252 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
 
     // monitor progress of worker tasks and terminate
     // parse incoming events until the spawned task finishes
-    let mut stages: HashMap<String, HashMap<String, f32>> = HashMap::new();
-    let mut events = Vec::new();
-    let batch_size = 32;
-    let mut jobs_done = 0;
-    let mut jobs_failed = 0;
+    let mut ep = EventParser::new(32);
     loop {
         // TODO test if new workers need to be spawned
         // TODO add retry-logic in case a backup job fails
 
+        ep.process_events(&mut rx, &mut pt).await;
+
+        // test if the thread is still running or has finished and provided a result
+        debug!("workers (pre-cleanup):  {}", workers.len());
+        for (drive, worker) in workers.extract_if(|_, worker| worker.is_finished()) {
+            // TODO do we need to drain potentially remaining events?
+            match worker.await.unwrap() {
+                Ok(result) => {
+                    let elapsed_min = result.elapsed_secs / 60;
+                    let elapsed_sec = result.elapsed_secs % 60;
+                    let size_mb = (result.fs_size as f32) / 1024u32.pow(2) as f32;
+                    let size_gb = (result.fs_size as f32) / 1024u32.pow(3) as f32;
+                    let write_rate = size_mb / (result.elapsed_secs as f32);
+                    let device_id = drive.device.to_string_lossy();
+                    let message = format!(
+                        "🗸 [{}] Backup task completed backup after {} minutes {} seconds. ({:.1} GiB written, {:.1} MiB/s)",
+                        device_id, elapsed_min, elapsed_sec, size_gb, write_rate
+                    );
+                    pt.send_text_message(&message);
+
+                    // update total bytes
+                    // progress.on_backup_completed(result.fs_size);
+                }
+                Err(error) => {
+                    let message = format!(
+                        "✗ [{}] Backup task failed: {:#?}",
+                        drive.device.to_string_lossy(),
+                        error.reason
+                    );
+                    pt.send_text_message(&message);
+                    ep.add_failed();
+
+                    // clear progress bars relating to the failed job
+                    // (ignore if progress bar does not exist)
+                    let pb_prgt_id = error.get_device_id();
+                    let pb_prgc_id = error.get_stage_id();
+                    let _ = pt.clear_progress_bar(&pb_prgc_id);
+                    let _ = pt.clear_progress_bar(&pb_prgt_id);
+                }
+            }
+        }
+        // after this loop has run:
+        // - 'workers' contains active threads
+        // - 'drives_done' contains drives with successful backup
+        // - 'drives_failed' contains drives with failed backup
+        debug!("workers (post-cleanup): {}", workers.len());
+
+        if workers.is_empty() {
+            break;
+        } else {
+            // add an artificial delay to prevent "100% CPU-busy" if there
+            // are no messages and we're permanently looping
+            sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+    // sanity check: this must never trigger
+    // (if this condition triggers the code above does not work and skips
+    // unprocessed messages)
+    if !rx.is_empty() {
+        error!("Receiver queue contains {} messages!", rx.len());
+        while let Some(msg) = rx.recv().await {
+            error!("{:#?}", msg);
+        }
+    }
+
+    if ep.get_failed() == 0 {
+        exitcode::OK
+    } else {
+        exitcode::IOERR
+    }
+}
+
+// // TODO figure out if it is possible for a worker to stall
+// // (worker was created but does not complete)
+// // potential scenarios:
+// // - trying to read a severely damaged disc?
+// // - ran out of disk space?
+// let max_try = 3u8;
+// let mut try_counters = HashMap::<String, u8>::new();
+// let mut workers = HashMap::new();
+// let mut workers_done = 0;
+// let mut workers_failed = 0;
+// <...>
+//     debug!("[unshackle] Checking drive readiness.");
+//     if workers.is_empty() || workers.len() < drives_want.len() {
+//         // no active workers, need to manually trigger a drive update
+//         // (artificially delaying the refresh to prevent back-to-back
+//         // polling)
+//         sleep(Duration::from_secs(10)).await;
+//         debug!("No workers found. Trigger manual refresh.");
+//         drives_have = find_all_drives(makemkvcon_bin.to_path_buf(), false, tx_drv.clone()).await.unwrap();
+//         drives_want = find_matching_drives(&drives_have, &args.drives);
+//     }
+//     for drive in &drives_want {
+//         if !workers.contains_key( &drive.device_name) {
+//             let worker_try = try_counters.entry(drive.device_name.clone()).or_insert(0);
+//             if *worker_try < max_try {
+//                 // is drive ready? (disc is loaded)
+//                 match is_drive_ready(drive) {
+//                     true => {
+//                         // spawn a worker for this drive
+//                         info!("Drive '{}' is ready. Spawning worker.", drive.device_name);
+//                         let worker = spawn(unshackle_disc(
+//                             binary.clone(),
+//                             drive.clone(),
+//                             target.clone(),
+//                             // args.eject,
+//                             args.allow_overwrite,
+//                             tx.clone(),
+//                         ));
+//                         workers.insert(drive.device_name.clone(), worker);
+//                         *worker_try += 1;
+//                     },
+//                     false => {
+//                         info!("Drive '{}' is not ready.", drive.device_name);
+//                         continue;
+//                     }
+//                 }
+//             }
+//         } else {
+//             // already have a worker - ignore
+//         }
+//     }
+//
+//     debug!("[unshackle] Checking worker progress.");
+//     let mut completed = Vec::new();
+//     for (device_name, worker) in workers.iter_mut() {
+//         if worker.is_finished() {
+//             info!("[{}] Worker has finished.", device_name);
+//             // get the result (does not incur a delay since the thread
+//             // has already finished)
+//             match worker.await {
+//                 Ok(result) => {
+//                     match result {
+//                         Ok(UnshackleResult::BackupSuccess) => {
+//                             info!("[{}] Successfully backup'd up this medium.", device_name);
+//                             workers_done += 1;
+//                             if args.continuous || args.eject {
+//                                 ripit::eject_medium(&PathBuf::from(device_name));
+//                             }
+//                         },
+//                         Ok(UnshackleResult::BackupFailure) => {
+//                             let cur_try = try_counters.get_mut(device_name).unwrap();
+//                             if *cur_try < max_try {
+//                                 error!("[{}] Failed to backup up this medium! ({}/{}) Retrying.", device_name, cur_try, max_try);
+//                                 *cur_try += 1;
+//                             } else {
+//                                 error!("[{}] Failed to backup up this medium! ({}/{}) Giving up.", device_name, cur_try, max_try);
+//                                 if args.continuous || args.eject {
+//                                     ripit::eject_medium(&PathBuf::from(device_name));
+//                                 }
+//                                 workers_failed += 1;
+//                             }
+//                         },
+//                         Err(UnshackleError::LogError(e)) => {
+//                             error!("[{}] {}.", device_name, e);
+//                         },
+//                         Err(UnshackleError::UnknownDriveStatus) => {
+//                             error!("[{}] Internal error: Unknown drive status.", device_name);
+//                         },
+//                         Err(UnshackleError::UnknownError(x)) => {
+//                             error!("[{}] Internal error: Unknown error: {}", device_name, x);
+//                         },
+//                         Err(UnshackleError::NoMedium) => {
+//                             info!("[{}] No medium in drive.", device_name);
+//                         },
+//                         // these states should not occur at this point:
+//                         Err(UnshackleError::DriveNotReady) => {
+//                             warn!("[{}] Unexpected state: Drive not ready.", device_name);
+//                         },
+//                         Err(UnshackleError::NoDrive) => {
+//                             warn!("[{}] Unexpected state: No such drive.", device_name);
+//                         },
+//                         Err(UnshackleError::BackupError(_err)) => {
+//                             // TODO decide what to do
+//                             warn!("[{}] Unexpected result: BackupError", device_name);
+//                         }
+//                     }
+//                 },
+//                 Err(x) => {
+//                     error!("[{}] Failed to await thread: {}", device_name, x);
+//                 },
+//             }
+//
+//             // remove this worker from the work queue
+//             completed.push(device_name.clone());
+//
+//             if args.continuous {
+//                 // reset try counter for this device to prepare for
+//                 // the next disc
+//                 try_counters.remove(device_name);
+//             }
+//         }
+//     }
+//
+//     debug!("[unshackle] Removing completed workers.");
+//     for device_name in completed.iter() {
+//         info!("[unshackle] Removing worker for '{}'.", device_name);
+//         workers.remove(device_name);
+//     }
+
+// ------------------------------------------------------------------------
+// private helper functions
+// ------------------------------------------------------------------------
+
+struct EventParser {
+    stages: HashMap<String, HashMap<String, f32>>,
+    events: Vec<UnshackleEvent>,
+    batch_size: usize,
+    jobs_done: u32,
+    jobs_failed: u32,
+}
+
+impl EventParser {
+    fn new(batch_size: usize) -> Self {
+        EventParser {
+            stages: HashMap::new(),
+            events: Vec::new(),
+            batch_size,
+            jobs_done: 0,
+            jobs_failed: 0,
+        }
+    }
+
+    async fn process_events(
+        &mut self,
+        rx: &mut Receiver<UnshackleEvent>,
+        pt: &mut ProgressTracker,
+    ) {
+        // We need to be careful with this receive channel:
+        // 'rx.recv_many(<limit>)' sleeps until at least 1 message is
+        // available. No messages = eternal slumber.
+        //
+        // To prevent this deadlock we fetch messages until a timeout
+        // triggers.
+        //
+        // An alternative approach would be to check if rx is empty before
+        // calling recv_many(). Decided to use the timeout-approach in case
+        // there is a delay and messages aren't available 'now' but would
+        // be available 'soon'.
         tokio::select! {
             // batched processing of generated events to reduce overhead
             //
@@ -224,9 +462,9 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
             //
             // ⠦ [/dev/sr1] Copying all files (0%)  [░░░░░░░░░░░░░░░░░░░░] 00:00:25
             //                                                             ^^^^^^^^
-            _ = rx.recv_many(&mut events, batch_size) => {
+            _ = rx.recv_many(&mut self.events, self.batch_size) => {
                 // parse generated events
-                for event in events.drain(..) {
+                for event in self.events.drain(..) {
                     match event {
                         UnshackleEvent::MsgInfo(msg) => {
                             let device = msg.device.to_string_lossy();
@@ -273,7 +511,7 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                             let device_name = pu.source.clone();
                             let stage_name = pu.get_stage_name(); // reported as 'total'
                             let task_name = pu.get_task_name(); // reported as 'current'
-                            let device_stage = stages.entry(device_name.clone()).or_insert(HashMap::from([(stage_name.clone(), f32::NAN)]));
+                            let device_stage = self.stages.entry(device_name.clone()).or_insert(HashMap::from([(stage_name.clone(), f32::NAN)]));
                             let task_pct_old = device_stage.get(&stage_name).unwrap_or(&f32::NAN);
                             let task_pct_new = pu.prgc.percentage;
 
@@ -283,7 +521,7 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                             // percentage has changed more than 5%
                             // (prevent log-flooding)
                             if task_pct_old.is_nan() || task_pct_new >= task_pct_old + 5.0 {
-                                info!("[{}] {}: {:3.0}% (done: {}, failed: {})", device_name, stage_name, task_pct_new, jobs_done, jobs_failed);
+                                info!("[{}] {}: {:3.0}% (done: {}, failed: {})", device_name, stage_name, task_pct_new, self.jobs_done, self.jobs_failed);
                             }
 
                             // throttle progress bars: notify only if stage or
@@ -318,365 +556,18 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
                     }
                 }
             },
-            else => {
-                pt.send_text_message("tokio::select!(): break triggered");
-                break;
+            _ = sleep(Duration::from_millis(1000)) => {
+                // timeout reached, continue with other work
+                debug!("Event collection timeout reached.");
             },
         }
-
-        // test if the thread is still running or has finished and provided a result
-        debug!("workers (pre-cleanup):  {}", workers.len());
-        for (drive, worker) in workers.extract_if(|_, worker| worker.is_finished()) {
-            // TODO do we need to drain potentially remaining events?
-            match worker.await.unwrap() {
-                Ok(result) => {
-                    let elapsed_min = result.elapsed_secs / 60;
-                    let elapsed_sec = result.elapsed_secs % 60;
-                    let size_mb = (result.fs_size as f32) / 1024u32.pow(2) as f32;
-                    let size_gb = (result.fs_size as f32) / 1024u32.pow(3) as f32;
-                    let write_rate = size_mb / (result.elapsed_secs as f32);
-                    let device_id = drive.device.to_string_lossy();
-                    let message = format!(
-                        "🗸 [{}] Backup task completed backup after {} minutes {} seconds. ({:.1}GiB written, {:.1}MiB/s)",
-                        device_id, elapsed_min, elapsed_sec, size_gb, write_rate
-                    );
-                    pt.send_text_message(&message);
-                    jobs_done += 1;
-
-                    // update total bytes
-                    // progress.on_backup_completed(result.fs_size);
-                }
-                Err(error) => {
-                    let message = format!(
-                        "✗ [{}] Backup task failed: {:#?}",
-                        drive.device.to_string_lossy(),
-                        error.reason
-                    );
-                    pt.send_text_message(&message);
-                    jobs_failed += 1;
-
-                    // clear progress bars relating to the failed job
-                    // (ignore if progress bar does not exist)
-                    let pb_prgt_id = error.get_device_id();
-                    let pb_prgc_id = error.get_stage_id();
-                    let _ = pt.clear_progress_bar(&pb_prgc_id);
-                    let _ = pt.clear_progress_bar(&pb_prgt_id);
-                }
-            }
-        }
-        // after this loop has run:
-        // - 'workers' contains active threads
-        // - 'drives_done' contains drives with successful backup
-        // - 'drives_failed' contains drives with failed backup
-        debug!("workers (post-cleanup): {}", workers.len());
-
-        if workers.is_empty() {
-            break;
-        } else {
-            // add an artificial delay to prevent "100% CPU-busy" if there
-            // are no messages and we're permanently looping
-            sleep(Duration::from_millis(500)).await;
-        }
     }
 
-    if !rx.is_empty() {
-        error!("Receiver queue contains {} messages!", rx.len());
-        while let Some(msg) = rx.recv().await {
-            error!("{:#?}", msg);
-        }
+    fn add_failed(&mut self) {
+        self.jobs_failed += 1;
     }
 
-    if jobs_failed == 0 {
-        exitcode::OK
-    } else {
-        exitcode::IOERR
+    fn get_failed(&self) -> u32 {
+        self.jobs_failed
     }
 }
-
-/*
-pub async fn run_old(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
-    let log_level = if let Some(level) = args.global_opts.log_level {
-        level.to_string()
-    } else {
-        std::env::var("RUST_LOG").unwrap_or(String::from("warn"))
-    };
-    env_logger::Builder::new().parse_filters(&log_level).init();
-
-    // When working with an optical drive we're 100% I/O bound. A DVD is
-    // read at ~10MiB/s. A BluRay allows for slightly faster reads at
-    // ~20MiB/s. This is the bottle neck. Everything else is kind of
-    // irrelevant since it's very likely to be fast enough.
-    //
-    // The only way to reduce runtime is to use multiple optical drives and
-    // run multiple extractions in parallel. Up to 6 drives are going to
-    // be fine on any reasonably modern hardware.
-    //
-    // goal: run multiple extractions in parallel
-    // design:
-    // - using a dedicated process for each instance of 'makemkvcon'
-    //   (mode: concurrent and parallel)
-    // - using threads for the internal logic while makemkvcon is running
-    //   in the background
-    //   (mode: concurrent, not parallel)
-    //
-    // CPU usage:
-    // - per 'makemkvcon backup' process: half of a CPU core (Celeron N3450)
-    // - for 'ripit-cli': less than one percent
-
-    // while running:
-    // - monitor all or user-specified drives
-    //   - start a worker task if a media was inserted
-    // - monitor worker tasks
-    // - if worker task finishes and in continuous mode
-    //   - create a new worker task
-    let binary = makemkvcon_bin.to_path_buf();
-    let target = args.target.to_path_buf();
-
-    info!("Using target directory: {}", target.to_string_lossy());
-
-    for drive in &drives {
-        let (tx_mkv, mut rx_mv) = mpsc::channel::<MakeMkvEvent>(256);
-        let _result = makemkv.backup(drv_mkv, target, tx_mkv).await;
-    }
-
-    // let (tx, mut rx) = mpsc::channel::<UnshackleEvent>(256);
-
-    // // first run - can't do anything until we know which drives are present
-    // // - the available drives may change over time, e.g. after adding
-    // //   or removing a USB drive
-    // // - adding a SATA drive is possible (may require a bus scan), e.g.
-    // //   `echo "- - -" > /sys/class/scsi_host/host1/scan`
-    // let (tx_drv, mut rx_drv) = mpsc::channel::<DriveEvent>(256);
-    // let mut drives_have = find_all_drives(makemkvcon_bin.to_path_buf(), true, tx_drv.clone()).await.unwrap();
-    // let mut drives_want = find_matching_drives(&drives_have, &args.drives);
-
-    // debug!("drives_user: {:#?}", args.drives);
-    // debug!("drives_have: {:#?}", drives_have);
-    // debug!("drives_want: {:#?}", drives_want);
-
-    // // TODO figure out if it is possible for a worker to stall
-    // // (worker was created but does not complete)
-    // // potential scenarios:
-    // // - trying to read a severely damaged disc?
-    // // - ran out of disk space?
-    // let max_try = 3u8;
-    // let mut try_counters = HashMap::<String, u8>::new();
-    // let mut workers = HashMap::new();
-    // let mut workers_done = 0;
-    // let mut workers_failed = 0;
-    // loop {
-    //     debug!("status: {}/{} active workers", workers.len(), drives_want.len());
-
-    //     debug!("Monitoring the communication channel.");
-    //     // We need to be careful with this receive channel: The transmit
-    //     // channel won't close on its own causing 'rx.recv().await' to wait
-    //     // forever for new messages since the channel wasn't closed. Using
-    //     // 'rx.recv_many(<limit>)' won't help either since it sleeps until
-    //     // at least 1 message is available. No messages = eternal slumber.
-    //     //
-    //     // To prevent this deadlock from happening we fetch messages until
-    //     // the timeout triggers. This will give the remainder of the loop
-    //     // (including 'worker.await') a chance to run.
-    //     tokio::select! {
-    //         Some(event) = rx.recv() => {
-    //             match event {
-    //                 UnshackleEvent::MsgError(x) => {
-    //                     error!("[???] {}", x);
-    //                 },
-    //                 UnshackleEvent::MsgWarning(x) => {
-    //                     warn!("[???] {}", x);
-    //                 },
-    //                 UnshackleEvent::MsgInfo(x) => {
-    //                     info!("[???] {}", x);
-    //                 },
-    //                 UnshackleEvent::MsgDebug(x) => {
-    //                     debug!("[???] {}", x);
-    //                 },
-    //                 UnshackleEvent::MsgUnknown(x) => {
-    //                     info!("[???] {}", x);
-    //                 },
-    //                 UnshackleEvent::NeedLibreDrive(x) => {
-    //                     warn!("[???] Need Libre Drive for device '{}'!", x);
-    //                 },
-    //                 UnshackleEvent::Status(device, file_size, write_rate) => {
-    //                     let size_in_gib = file_size as f64 / f64::powf(1024.0, 3.0);
-    //                     let write_rate_in_mib = write_rate as f64 / f64::powf(1024.0, 2.0);
-    //                     // the formatted output is designed to stay aligned and
-    //                     // provide a useful indication for the entire value range:
-    //                     // --------------------------------------------------------
-    //                     // Processed:  0.12 GiB (4.3 MiB/s)
-    //                     // Processed:  6.22 GiB (7.3 MiB/s)
-    //                     // Processed: 72.69 GiB (18.1 MiB/s)
-    //                     // --------------------------------------------------------
-    //                     info!(
-    //                         "[{}] Processed: {:5.2} GiB ({:.1} MiB/s)",
-    //                         device, size_in_gib, write_rate_in_mib
-    //                     );
-    //                 }
-    //                 UnshackleEvent::ProgressPercentage(a, b, c, d) => {
-    //                     // TODO update percentage
-    //                     // TODO print percentage every x seconds
-    //                 }
-    //             }
-    //         },
-    //         _ = sleep(Duration::from_millis(5000)) => {
-    //             // Timeout reached, continue to next section
-    //             debug!("Event collection timeout reached.");
-    //         },
-    //     }
-
-    //     debug!("[unshackle] Checking drive readiness.");
-    //     if workers.is_empty() || workers.len() < drives_want.len() {
-    //         // no active workers, need to manually trigger a drive update
-    //         // (artificially delaying the refresh to prevent back-to-back
-    //         // polling)
-    //         sleep(Duration::from_secs(10)).await;
-    //         debug!("No workers found. Trigger manual refresh.");
-    //         drives_have = find_all_drives(makemkvcon_bin.to_path_buf(), false, tx_drv.clone()).await.unwrap();
-    //         drives_want = find_matching_drives(&drives_have, &args.drives);
-    //     }
-    //     for drive in &drives_want {
-    //         if !workers.contains_key( &drive.device_name) {
-    //             let worker_try = try_counters.entry(drive.device_name.clone()).or_insert(0);
-    //             if *worker_try < max_try {
-    //                 // is drive ready? (disc is loaded)
-    //                 match is_drive_ready(drive) {
-    //                     true => {
-    //                         // spawn a worker for this drive
-    //                         info!("Drive '{}' is ready. Spawning worker.", drive.device_name);
-    //                         let worker = spawn(unshackle_disc(
-    //                             binary.clone(),
-    //                             drive.clone(),
-    //                             target.clone(),
-    //                             // args.eject,
-    //                             args.allow_overwrite,
-    //                             tx.clone(),
-    //                         ));
-    //                         workers.insert(drive.device_name.clone(), worker);
-    //                         *worker_try += 1;
-    //                     },
-    //                     false => {
-    //                         info!("Drive '{}' is not ready.", drive.device_name);
-    //                         continue;
-    //                     }
-    //                 }
-    //             }
-    //         } else {
-    //             // already have a worker - ignore
-    //         }
-    //     }
-
-    //     debug!("[unshackle] Checking worker progress.");
-    //     let mut completed = Vec::new();
-    //     for (device_name, worker) in workers.iter_mut() {
-    //         if worker.is_finished() {
-    //             info!("[{}] Worker has finished.", device_name);
-    //             // get the result (does not incur a delay since the thread
-    //             // has already finished)
-    //             match worker.await {
-    //                 Ok(result) => {
-    //                     match result {
-    //                         Ok(UnshackleResult::BackupSuccess) => {
-    //                             info!("[{}] Successfully backup'd up this medium.", device_name);
-    //                             workers_done += 1;
-    //                             if args.continuous || args.eject {
-    //                                 ripit::eject_medium(&PathBuf::from(device_name));
-    //                             }
-    //                         },
-    //                         Ok(UnshackleResult::BackupFailure) => {
-    //                             let cur_try = try_counters.get_mut(device_name).unwrap();
-    //                             if *cur_try < max_try {
-    //                                 error!("[{}] Failed to backup up this medium! ({}/{}) Retrying.", device_name, cur_try, max_try);
-    //                                 *cur_try += 1;
-    //                             } else {
-    //                                 error!("[{}] Failed to backup up this medium! ({}/{}) Giving up.", device_name, cur_try, max_try);
-    //                                 if args.continuous || args.eject {
-    //                                     ripit::eject_medium(&PathBuf::from(device_name));
-    //                                 }
-    //                                 workers_failed += 1;
-    //                             }
-    //                         },
-    //                         Err(UnshackleError::LogError(e)) => {
-    //                             error!("[{}] {}.", device_name, e);
-    //                         },
-    //                         Err(UnshackleError::UnknownDriveStatus) => {
-    //                             error!("[{}] Internal error: Unknown drive status.", device_name);
-    //                         },
-    //                         Err(UnshackleError::UnknownError(x)) => {
-    //                             error!("[{}] Internal error: Unknown error: {}", device_name, x);
-    //                         },
-    //                         Err(UnshackleError::NoMedium) => {
-    //                             info!("[{}] No medium in drive.", device_name);
-    //                         },
-    //                         // these states should not occur at this point:
-    //                         Err(UnshackleError::DriveNotReady) => {
-    //                             warn!("[{}] Unexpected state: Drive not ready.", device_name);
-    //                         },
-    //                         Err(UnshackleError::NoDrive) => {
-    //                             warn!("[{}] Unexpected state: No such drive.", device_name);
-    //                         },
-    //                         Err(UnshackleError::BackupError(_err)) => {
-    //                             // TODO decide what to do
-    //                             warn!("[{}] Unexpected result: BackupError", device_name);
-    //                         }
-    //                     }
-    //                 },
-    //                 Err(x) => {
-    //                     error!("[{}] Failed to await thread: {}", device_name, x);
-    //                 },
-    //             }
-
-    //             // remove this worker from the work queue
-    //             completed.push(device_name.clone());
-
-    //             if args.continuous {
-    //                 // reset try counter for this device to prepare for
-    //                 // the next disc
-    //                 try_counters.remove(device_name);
-    //             }
-    //         }
-    //     }
-
-    //     debug!("[unshackle] Removing completed workers.");
-    //     for device_name in completed.iter() {
-    //         info!("[unshackle] Removing worker for '{}'.", device_name);
-    //         workers.remove(device_name);
-    //     }
-
-    //     // report
-    //     let worker_count = workers.len();
-    //     let drives_count = drives_want.len();
-    //     if args.continuous {
-    //         debug!("run(): {}/{} workers are running.", worker_count, drives_count);
-    //         if worker_count < drives_count {
-    //             // worker won't start if drive isn't ready
-    //             // -> need to update our internal state
-    //             info!("run(): Refreshing drive status.");
-    //             drives_have = find_all_drives(makemkvcon_bin.to_path_buf(), false, tx_drv.clone()).await.unwrap();
-    //             drives_want = find_matching_drives(&drives_have, &args.drives);
-    //         }
-    //     } else {
-    //         let job_count = try_counters.len();
-    //         if workers_done + workers_failed == job_count {
-    //             if workers_failed == 0 {
-    //                 info!("[unshackle] All workers have finished successfully.");
-    //                 return exitcode::OK;
-    //             } else {
-    //                 warn!("[unshackle] Some workers have failed.");
-    //                 return exitcode::IOERR;
-    //             }
-    //         } else {
-    //             debug!("run(): {} workers are running, {} total jobs.", worker_count, job_count);
-    //         };
-    //     }
-    // }
-
-    exitcode::OK
-}
-*/
-
-// ------------------------------------------------------------------------
-// private helper functions
-// ------------------------------------------------------------------------
-
-// <none>

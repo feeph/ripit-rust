@@ -195,13 +195,13 @@ pub async fn unshackle_disc(
                 );
                 std::fs::remove_file(&target_mkv).expect("Failed to remove existing file!");
             }
+        } else {
+            info!("Target {:#?} already exists. Skipped.", target_mkv);
+            return Ok(UnshackleResult {
+                elapsed_secs: 0,
+                fs_size: calculate_filesystem_size(&target_mkv),
+            });
         }
-    } else {
-        info!("Target {:#?} already exists. Skipped.", target_mkv);
-        return Ok(UnshackleResult {
-            elapsed_secs: 0,
-            fs_size: calculate_filesystem_size(&target_mkv),
-        });
     }
 
     let mut logfile = target_mkv.clone();

@@ -4,6 +4,7 @@ dictionaryDefinitions: []
 dictionaries: []
 words:
   - aacs
+  - apdefs
   - apdefs_h
   - ASUS
   - bdsvm
@@ -32,6 +33,7 @@ words:
   - logfile
   - makemkv
   - makemkvcon
+  - makemkvgui
   - minwindef
   - mpls
   - noscan
@@ -59,5 +61,6 @@ ignoreWords:
   - KL1OBDB4635
   - PLDS
   - dialoguer
+  - peekable
   - pvrs
 import: []
