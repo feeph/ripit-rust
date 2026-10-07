@@ -217,7 +217,6 @@ pub async fn run(args: CmdArgs, mm: &makemkv::MakeMkv) -> i32 {
         // test if the thread is still running or has finished and provided a result
         debug!("workers (pre-cleanup):  {}", workers.len());
         for (drive, worker) in workers.extract_if(|_, worker| worker.is_finished()) {
-            // TODO do we need to drain potentially remaining events?
             match worker.await.unwrap() {
                 Ok(result) => {
                     let elapsed_min = result.elapsed_secs / 60;
