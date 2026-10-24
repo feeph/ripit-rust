@@ -22,8 +22,27 @@ pub struct LogWriter {
     fh: Option<File>,
 }
 
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum LogWriterError {
+    PermissionDenied,
+    UnknownError,
+}
+
+impl From<std::io::Error> for LogWriterError {
+    fn from(err: std::io::Error) -> Self {
+        match err.kind() {
+            std::io::ErrorKind::PermissionDenied => LogWriterError::PermissionDenied,
+            _ => {
+                warn!("Encountered an unhandled error kind: {:#?}", err.kind());
+                LogWriterError::UnknownError
+            }
+        }
+    }
+}
+
 impl LogWriter {
-    pub async fn new(filename: Option<PathBuf>) -> Self {
+    pub async fn new(filename: &Option<PathBuf>) -> Result<Self, LogWriterError> {
         let fh = match filename {
             Some(logfile) => {
                 debug!(
@@ -35,8 +54,7 @@ impl LogWriter {
                     Some(parent_dir) => {
                         if !parent_dir.is_dir() {
                             debug!("Creating parent dir '{}'.", parent_dir.to_string_lossy());
-                            std::fs::create_dir_all(parent_dir)
-                                .expect("Unable to create parent dir!");
+                            std::fs::create_dir_all(parent_dir)?;
                         } else {
                             debug!(
                                 "Required parent dir '{}' already exists. Good.",
@@ -55,13 +73,12 @@ impl LogWriter {
                         .create(true)
                         .write(true)
                         .truncate(true)
-                        .open(logfile)
-                        .expect("Failed to open provided file!"),
+                        .open(logfile)?,
                 )
             }
             None => None,
         };
-        Self { fh }
+        Ok(Self { fh })
     }
 
     pub async fn write(&mut self, line: &str) {

@@ -18,7 +18,7 @@ use tokio::spawn;
 use tokio::sync::mpsc;
 
 // crate-provided imports
-use makemkv::{MakeMkvCli, MakeMkvEvent, ScanMode};
+use makemkv::{MakeMkvCli, MakeMkvErrorKind, MakeMkvEvent, ScanMode};
 
 // ------------------------------------------------------------------------
 // public interface
@@ -133,9 +133,16 @@ pub async fn find_drives(
             );
             Ok(drives)
         }
-        Ok(Err(makemkv::InfoError::DataError)) => {
-            error!("find_drives() failed after {} seconds: DataError", elapsed);
-            Err("DataError".to_string())
+        Ok(Err(e)) => {
+            error!(
+                "[{:#?}] Action '{}' failed: {:#?}",
+                e.kind, e.action, e.result
+            );
+            match e.kind {
+                MakeMkvErrorKind::System => Err("SystemError".to_string()),
+                MakeMkvErrorKind::Device => Err("DeviceError".to_string()),
+                MakeMkvErrorKind::Medium => Err("MediumError".to_string()),
+            }
         }
         Err(e) => {
             error!("find_drives() failed after {} seconds: {}", elapsed, e);

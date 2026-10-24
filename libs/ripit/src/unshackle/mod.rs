@@ -22,7 +22,7 @@ use crate::drives::{OpticalDisc, OpticalDrive};
 use crate::os_utils::calculate_filesystem_size;
 use crate::progress_update::ProgressUpdate;
 use crate::severities::{Severity, default_severity_map};
-use makemkv::{MakeMkvCli, MakeMkvEvent, MsgRecord, ScanMode};
+use makemkv::{ActionResult, MakeMkvCli, MakeMkvEvent, MsgRecord, ScanMode};
 
 // ------------------------------------------------------------------------
 // public interface
@@ -50,27 +50,31 @@ pub struct UnshackleResult {
     pub fs_size: u64,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum UnshackleErrorReason {
-    /// no disc inserted or unable to read it
-    NoDisc,
-
-    /// disc is present but couldn't be read
-    ReadError,
-
-    /// 'makemkvcon backup' failed with error
-    BackupFailed,
-
-    /// 'makemkvcon backup' failed in an unexpected way
-    InternalError,
-}
+// #[derive(Debug, PartialEq)]
+// pub enum UnshackleErrorReason {
+//     /// unable to start 'makemkvcon backup'
+//     InitFailed,
+//
+//     /// no disc inserted or unable to read it
+//     NoDisc,
+//
+//     /// disc is present but couldn't be read
+//     ReadError,
+//
+//     /// 'makemkvcon backup' failed with error
+//     BackupFailed,
+//
+//     /// 'makemkvcon backup' failed in an unexpected way
+//     InternalError,
+// }
 
 pub struct UnshackleError {
     source: String,
     prgt_code: u32,
     #[allow(dead_code)]
     prgc_code: u32,
-    pub reason: UnshackleErrorReason,
+    pub action: String,
+    pub reason: ActionResult,
     pub elapsed_secs: u64,
 }
 
@@ -120,7 +124,8 @@ pub async fn unshackle_disc(
                 source: drive.device.to_string_lossy().to_string(),
                 prgt_code: 0,
                 prgc_code: 0,
-                reason: UnshackleErrorReason::NoDisc,
+                action: format!("read disc in drive {:#?}", drive.device),
+                reason: ActionResult::NoDisc,
                 elapsed_secs: 0,
             });
         }
@@ -137,7 +142,8 @@ pub async fn unshackle_disc(
                 source: drive.device.to_string_lossy().to_string(),
                 prgt_code: 0,
                 prgc_code: 0,
-                reason: UnshackleErrorReason::ReadError,
+                action: format!("get_volume_id({:#?})", drive.device),
+                reason: ActionResult::ContentError,
                 elapsed_secs: 0,
             });
         }
@@ -274,8 +280,8 @@ pub async fn unshackle_disc(
     // calculate runtime metrics and report them
     let elapsed = start_time.elapsed().as_secs();
 
-    match &result {
-        Ok(Ok(())) => {
+    match result.expect("`makemkvcon info` failed to run!") {
+        Ok(()) => {
             // `makemkvcon` has returned successfully but it might still
             // be a failure in disguise. Let's check in detail.
             if ep.get_error_count() == 0 {
@@ -302,32 +308,25 @@ pub async fn unshackle_disc(
                     source: drive.device.to_string_lossy().to_string(),
                     prgt_code: pu.prgt.code,
                     prgc_code: pu.prgc.code,
-                    reason: UnshackleErrorReason::BackupFailed,
+                    action: format!(
+                        "unshackle_disc(): {} -> {}",
+                        drive.device.to_string_lossy(),
+                        target.to_string_lossy()
+                    ),
+                    reason: ActionResult::BackupFailed,
                     elapsed_secs: elapsed,
                 })
             }
         }
-        Ok(Err(makemkv::BackupError::DataError)) => {
-            // it's unclear under which conditions this could happen
-            debug!("Backup task failed after {} seconds. (DataError)", elapsed);
+        Err(err) => {
+            debug!("Backup task failed to start: {:#?}", err);
             Err(UnshackleError {
                 source: drive.device.to_string_lossy().to_string(),
-                prgt_code: pu.prgt.code,
-                prgc_code: pu.prgc.code,
-                reason: UnshackleErrorReason::InternalError,
-                elapsed_secs: elapsed,
-            })
-        }
-        Err(_e) => {
-            // something went seriously wrong, potentially a general issue
-            // with the child process, e.g. unable to execute the binary
-            debug!("unshackle_disc() encountered an issue with makemkvcon's child process.");
-            Err(UnshackleError {
-                source: drive.device.to_string_lossy().to_string(),
-                prgt_code: pu.prgt.code,
-                prgc_code: pu.prgc.code,
-                reason: UnshackleErrorReason::InternalError,
-                elapsed_secs: elapsed,
+                prgt_code: 0,
+                prgc_code: 0,
+                action: err.action,
+                reason: err.result,
+                elapsed_secs: 0,
             })
         }
     }

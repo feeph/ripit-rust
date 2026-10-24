@@ -28,7 +28,7 @@ use tokio::sync::mpsc::{self, Sender};
 use tokio::task::JoinHandle;
 
 // crate-provided imports
-use crate::runner::log_writer::LogWriter;
+use crate::runner::log_writer::{LogWriter, LogWriterError};
 use crate::runner::parser_context::ParserContext;
 
 // ------------------------------------------------------------------------
@@ -55,8 +55,38 @@ pub enum DirectIO {
 }
 
 #[derive(Debug)]
-pub enum MakeMkvError {
-    DataError(String),
+pub enum MakeMkvErrorKind {
+    // operating system or user-related errors, e.g.
+    // 'filesystem full', 'permission issue'
+    System,
+
+    // drive-related errors, e.g.
+    // 'no such drive', 'unable to read disc'
+    Device,
+
+    // disc or image-related error, e.g.
+    // 'corrupted data', 'unknown media type'
+    Medium,
+}
+
+#[derive(Debug)]
+pub enum ActionResult {
+    NoDisc,
+    PermissionDenied,
+    ContentError,
+    UnknownError(String),
+    UnknownStreamType,
+    TitleMismatch,
+    BackupFailed,
+}
+
+/// provide nec
+#[non_exhaustive]
+#[derive(Debug)]
+pub struct MakeMkvErrorContext {
+    pub kind: MakeMkvErrorKind,
+    pub action: String,
+    pub result: ActionResult,
 }
 
 pub async fn run_makemkvcon(
@@ -65,13 +95,31 @@ pub async fn run_makemkvcon(
     args: Vec<String>,
     tx: Sender<MakeMkvEvent>,
     logfile: Option<PathBuf>,
-) -> Result<DiscContent, MakeMkvError> {
+) -> Result<DiscContent, MakeMkvErrorContext> {
     let (tx_mkv, mut rx_mkv) = mpsc::channel::<String>(256);
 
     // see 'docs/makemkv-output.md' for examples of makemkvcon's output
     let th_mkv = spawn(run_program(makemkvcon, args, tx_mkv));
 
-    let mut lw: LogWriter = LogWriter::new(logfile).await;
+    debug!("Creating LogWriter for logfile {:#?}.", logfile);
+    let mut lw: LogWriter = match LogWriter::new(&logfile).await {
+        Ok(lw) => lw,
+        Err(LogWriterError::PermissionDenied) => {
+            return Err(MakeMkvErrorContext {
+                kind: MakeMkvErrorKind::System,
+                action: format!("CreateDir {:#?}", logfile),
+                result: ActionResult::PermissionDenied,
+            });
+        }
+        Err(err) => {
+            debug!("MakeMkvError::from(LogWriterError::UnknownError)");
+            return Err(MakeMkvErrorContext {
+                kind: MakeMkvErrorKind::System,
+                action: format!("CreateDir {:#?}", logfile),
+                result: ActionResult::UnknownError(format!("{:#?}", err)),
+            });
+        }
+    };
 
     let mut lines = Vec::new();
     let batch_size = 128;
@@ -126,15 +174,23 @@ pub async fn run_makemkvcon(
             debug!("Processing title {} / stream {}.", tid, sid);
             match parse_stream_attributes(stream) {
                 Some(sr) => {
+                    // either:
+                    // - our code is wrong (most likely)
+                    // - the same title/stream is present multiple time
                     if dc.insert_stream_record(*tid, *sid, &sr).is_err() {
-                        return Err(MakeMkvError::DataError(
-                            "makemkv: data update error".to_string(),
-                        ));
+                        return Err(MakeMkvErrorContext {
+                            kind: MakeMkvErrorKind::Medium,
+                            action: format!("dc.insert_stream_record({}, {}, x)", tid, sid),
+                            result: ActionResult::ContentError,
+                        });
                     };
                 }
                 None => {
-                    // this is really bad - it makes no sense to continue
-                    panic!("Detected an unknown stream type: {:#?}", stream);
+                    return Err(MakeMkvErrorContext {
+                        kind: MakeMkvErrorKind::Medium,
+                        action: format!("dc.insert_stream_record({}, {}, x)", tid, sid),
+                        result: ActionResult::UnknownStreamType,
+                    });
                 }
             }
         }
@@ -144,8 +200,15 @@ pub async fn run_makemkvcon(
 
     let title_count = pc.get_title_count();
     if dc.titles.len() != title_count {
-        let msg = "Found content but didn't see TCOUNT in output!".to_string();
-        return Err(MakeMkvError::DataError(msg));
+        return Err(MakeMkvErrorContext {
+            kind: MakeMkvErrorKind::Medium,
+            action: format!(
+                "sanity check: titles {} != TCOUNT {}",
+                dc.titles.len(),
+                title_count
+            ),
+            result: ActionResult::TitleMismatch,
+        });
     }
 
     debug!("run_makemkvcon(): Finished 'run_program()'. Returning.");
@@ -205,21 +268,24 @@ where
 {
     tokio::spawn(async move {
         if let Some(stream) = output_stream {
-            debug!(
-                "[makemkv] create_output_reader(): Command opened '{}'.",
-                label
-            );
+            debug!("create_output_reader(): Command opened '{}'.", label);
             let mut reader = BufReader::new(stream).lines();
 
+            // TODO validate that 'reader.next_line()' yields acceptable performance
             while let Ok(Some(line)) = reader.next_line().await {
-                debug!("[makemkv][{}] {}", label.to_lowercase(), line);
-                tx.send(line).await.expect("Receiver dropped!");
+                debug!("[{}] {}", label.to_lowercase(), line);
+                match tx.send(line).await {
+                    Ok(_) => (),
+                    Err(err) => {
+                        debug!(
+                            "create_output_reader(): tx.send() failed with '{:#?}'.",
+                            err
+                        );
+                    }
+                }
             }
         } else {
-            debug!(
-                "[makemkv] create_output_reader(): Command didn't open '{}'.",
-                label
-            );
+            debug!("create_output_reader(): Command didn't open '{}'.", label);
         }
     })
 }

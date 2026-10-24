@@ -29,7 +29,7 @@ The Grand Budapest Hotel (2014) BluRay:
 extern crate enum_primitive;
 
 mod apdefs_h;
-mod error_types;
+// mod error_types;
 mod parser;
 mod runner;
 mod scan_mode;
@@ -57,10 +57,10 @@ use crate::runner::{UpdateError, parse_stream_attributes, run_makemkvcon};
 pub mod api;
 
 pub use api::{ContentType, DrvRecord, DrvStatus, InfoRecord, MsgRecord};
-pub use error_types::{BackupError, FirmwareError, InfoError, LicenseError, MkvError};
+// pub use error_types::{BackupError, FirmwareError, InfoError, LicenseError, MkvError};
 pub use runner::{
-    DirectIO, DiscContent, MakeMkvError, MakeMkvEvent, OutputType, Source, StreamRecord,
-    parse_source,
+    ActionResult, DirectIO, DiscContent, MakeMkvErrorContext, MakeMkvErrorKind, MakeMkvEvent,
+    OutputType, Source, StreamRecord, parse_source,
 };
 pub use scan_mode::ScanMode;
 
@@ -77,7 +77,7 @@ pub trait MakeMkvCli {
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
         logfile: Option<PathBuf>,
-    ) -> Result<(), BackupError>;
+    ) -> Result<(), MakeMkvErrorContext>;
 
     /// prints info about disc
     ///
@@ -97,7 +97,7 @@ pub trait MakeMkvCli {
         source: String,
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
-    ) -> Result<DiscContent, InfoError>;
+    ) -> Result<DiscContent, MakeMkvErrorContext>;
 
     /// saves one or more titles to mkv files
     ///
@@ -116,7 +116,7 @@ pub trait MakeMkvCli {
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
         logfile: Option<PathBuf>,
-    ) -> Result<DiscContent, MkvError>;
+    ) -> Result<DiscContent, MakeMkvErrorContext>;
 
     /// run universal firmware tool
     ///
@@ -125,9 +125,8 @@ pub trait MakeMkvCli {
         &self,
         drive: String,
         filename: std::path::PathBuf,
-        scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
-    ) -> Result<(), FirmwareError>;
+    ) -> Result<(), MakeMkvErrorContext>;
 
     /// enter registration key into program
     /// (beta key is published at https://forum.makemkv.com/forum/viewtopic.php?f=5&t=1053)
@@ -136,9 +135,8 @@ pub trait MakeMkvCli {
     async fn reg(
         &self,
         license_key: String,
-        scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
-    ) -> Result<(), LicenseError>;
+    ) -> Result<(), MakeMkvErrorContext>;
 }
 
 // ------------------------------------------------------------------------
@@ -221,7 +219,7 @@ impl MakeMkv {
         mut args: Vec<String>,
         tx: Sender<MakeMkvEvent>,
         logfile: Option<PathBuf>,
-    ) -> Result<DiscContent, MakeMkvError> {
+    ) -> Result<DiscContent, MakeMkvErrorContext> {
         let args_mkv = create_args(&self.config, &mut args);
         run_makemkvcon(source, self.binary.clone(), args_mkv, tx, logfile).await
     }
@@ -236,7 +234,7 @@ impl MakeMkvCli for MakeMkv {
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
         logfile: Option<PathBuf>,
-    ) -> Result<(), BackupError> {
+    ) -> Result<(), MakeMkvErrorContext> {
         // e.g. `makemkvcon64.exe backup drv:0 filename.iso`
         let mut args = Vec::new();
         match scan_mode {
@@ -251,10 +249,14 @@ impl MakeMkvCli for MakeMkv {
         args.push(source.clone());
         args.push(target.to_string_lossy().to_string());
 
-        match self.run(&source, args, tx, logfile).await {
-            Ok(_) => Ok(()),
-            Err(MakeMkvError::DataError(_)) => Err(BackupError::DataError),
-        }
+        // ignore the provided result since it's always empty
+        // (`makemkvcon backup` does not read the disc's content)
+        let _dc = self.run(&source, args, tx, logfile).await?;
+
+        // TODO consider returning Ok(#) to indicate normal operation
+        // Ok(#)  -> success or recoverable error
+        // Err(#) -> non-recoverable error or unrelated to `makemkvcon backup`
+        Ok(())
     }
 
     async fn info(
@@ -262,7 +264,7 @@ impl MakeMkvCli for MakeMkv {
         source: String,
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
-    ) -> Result<DiscContent, InfoError> {
+    ) -> Result<DiscContent, MakeMkvErrorContext> {
         // e.g. `makemkvcon64.exe [--noscan] info drv:0`
         let mut args = Vec::new();
         match scan_mode {
@@ -276,10 +278,9 @@ impl MakeMkvCli for MakeMkv {
         args.push("info".to_string());
         args.push(source.clone());
 
-        match self.run(&source, args, tx, None).await {
-            Ok(dc) => Ok(dc),
-            Err(MakeMkvError::DataError(_)) => Err(InfoError::DataError),
-        }
+        let dc = self.run(&source, args, tx, None).await?;
+
+        Ok(dc)
     }
 
     async fn mkv(
@@ -290,7 +291,7 @@ impl MakeMkvCli for MakeMkv {
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
         logfile: Option<PathBuf>,
-    ) -> Result<DiscContent, MkvError> {
+    ) -> Result<DiscContent, MakeMkvErrorContext> {
         // e.g. `makemkvcon64.exe --noscan mkv drv:0 1 title_1.mkv`
         let mut args = Vec::new();
         match scan_mode {
@@ -306,68 +307,55 @@ impl MakeMkvCli for MakeMkv {
         args.push(titles);
         args.push(target.to_string_lossy().to_string());
 
-        match self.run(&source, args, tx, logfile).await {
-            Ok(dc) => Ok(dc),
-            Err(MakeMkvError::DataError(_)) => Err(MkvError::DataError),
-        }
+        let dc = self.run(&source, args, tx, logfile).await?;
+
+        Ok(dc)
     }
 
     async fn f(
         &self,
         drive: String,
         filename: std::path::PathBuf,
-        scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
-    ) -> Result<(), FirmwareError> {
+    ) -> Result<(), MakeMkvErrorContext> {
         // e.g. `makemkvcon64.exe f --all-yes -d E: rawflash -i Downgrade-Enabled-Firmware\Auto-Flash\LG-Desktop-NS60-sleep-fix\WH16NS60-1.02-MK.bin`
         // TODO add support for flashing encrypted firmware (enc)
-        let mut args = Vec::new();
-        match scan_mode {
-            ScanMode::DriveOnly => {
-                args.push("--noscan".to_string());
-            }
-            ScanMode::DriveAndDisc => {
-                // default mode, do nothing
-            }
-        }
-        args.push("f".to_string());
-        args.push("--all-yes".to_string());
-        args.push("-d".to_string());
-        args.push(drive.clone());
-        args.push("rawflash".to_string());
-        args.push("-i".to_string());
-        args.push(filename.to_string_lossy().to_string());
+        let args = vec![
+            "--noscan".to_string(),
+            "f".to_string(),
+            "--all-yes".to_string(),
+            "-d".to_string(),
+            drive.clone(),
+            "rawflash".to_string(),
+            "-i".to_string(),
+            filename.to_string_lossy().to_string(),
+        ];
 
-        match self.run(&drive, args, tx, None).await {
-            Ok(_) => Ok(()),
-            Err(MakeMkvError::DataError(_)) => Err(FirmwareError::DataError),
-        }
+        // ignore the provided result since it's always empty
+        // (`makemkvcon f` does not read the disc's content)
+        let _dc = self.run(&drive, args, tx, None).await?;
+
+        Ok(())
     }
 
     async fn reg(
         &self,
         license_key: String,
-        scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
-    ) -> Result<(), LicenseError> {
+    ) -> Result<(), MakeMkvErrorContext> {
         // e.g. `makemkvcon64.exe reg T-Wa...9e`
-        let mut args = Vec::new();
-        match scan_mode {
-            ScanMode::DriveOnly => {
-                args.push("--noscan".to_string());
-            }
-            ScanMode::DriveAndDisc => {
-                // default mode, do nothing
-            }
-        }
-        args.push("--robot".to_string());
-        args.push("reg".to_string());
-        args.push(license_key);
+        let args = vec![
+            "--noscan".to_string(),
+            "--robot".to_string(),
+            "reg".to_string(),
+            license_key,
+        ];
 
-        match self.run("makemkv", args, tx, None).await {
-            Ok(_) => Ok(()),
-            Err(MakeMkvError::DataError(_)) => Err(LicenseError::DataError),
-        }
+        // ignore the provided result since it's always empty
+        // (`makemkvcon reg` does not read the disc's content)
+        let _dc = self.run("", args, tx, None).await?;
+
+        Ok(())
     }
 }
 
@@ -388,7 +376,7 @@ impl MakeMkvMock {
         mut _args: Vec<String>,
         tx: Sender<MakeMkvEvent>,
         _logfile: Option<PathBuf>,
-    ) -> Result<DiscContent, MakeMkvError> {
+    ) -> Result<DiscContent, MakeMkvErrorContext> {
         let log = read_to_string(&self.log_file).expect("Unable to open log file.");
 
         // video, audio and subtitle streams needs special attention:
@@ -541,22 +529,34 @@ impl MakeMkvMock {
                 match parse_stream_attributes(stream) {
                     Some(sr) => {
                         if dc.insert_stream_record(*tid, *sid, &sr).is_err() {
-                            return Err(MakeMkvError::DataError(
-                                "makemkv: data update error".to_string(),
-                            ));
+                            return Err(MakeMkvErrorContext {
+                                kind: MakeMkvErrorKind::Medium,
+                                action: format!("dc.insert_stream_record({}, {}, x)", tid, sid),
+                                result: ActionResult::ContentError,
+                            });
                         };
                     }
                     None => {
-                        // this is really bad - it makes no sense to continue
-                        panic!("Detected an unknown stream type: {:#?}", stream);
+                        return Err(MakeMkvErrorContext {
+                            kind: MakeMkvErrorKind::Medium,
+                            action: format!("dc.insert_stream_record({}, {}, x)", tid, sid),
+                            result: ActionResult::UnknownStreamType,
+                        });
                     }
                 }
             }
         }
 
         if dc.titles.len() != title_count {
-            let msg = "Found content but didn't see TCOUNT in output!".to_string();
-            return Err(MakeMkvError::DataError(msg));
+            return Err(MakeMkvErrorContext {
+                kind: MakeMkvErrorKind::Medium,
+                action: format!(
+                    "sanity check: titles {} != TCOUNT {}",
+                    dc.titles.len(),
+                    title_count
+                ),
+                result: ActionResult::TitleMismatch,
+            });
         }
 
         // close the communication channel to signal the receiver we're done
@@ -575,7 +575,7 @@ impl MakeMkvCli for MakeMkvMock {
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
         logfile: Option<PathBuf>,
-    ) -> Result<(), BackupError> {
+    ) -> Result<(), MakeMkvErrorContext> {
         // e.g. `makemkvcon64.exe backup drv:0 filename.iso`
         let mut args = Vec::new();
         match scan_mode {
@@ -590,10 +590,14 @@ impl MakeMkvCli for MakeMkvMock {
         args.push(source);
         args.push(target.to_string_lossy().to_string());
 
-        match self.run(args, tx, logfile).await {
-            Ok(_) => Ok(()),
-            Err(MakeMkvError::DataError(_)) => Err(BackupError::DataError),
-        }
+        // ignore the provided result since it's always empty
+        // (`makemkvcon backup` does not read the disc's content)
+        let _dc = self.run(args, tx, logfile).await?;
+
+        // TODO consider returning Ok(#) to indicate normal operation
+        // Ok(#)  -> success or recoverable error
+        // Err(#) -> non-recoverable error or unrelated to `makemkvcon backup`
+        Ok(())
     }
 
     async fn info(
@@ -601,7 +605,7 @@ impl MakeMkvCli for MakeMkvMock {
         source: String,
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
-    ) -> Result<DiscContent, InfoError> {
+    ) -> Result<DiscContent, MakeMkvErrorContext> {
         // e.g. `makemkvcon64.exe [--noscan] info drv:0`
         let mut args = Vec::new();
         match scan_mode {
@@ -615,10 +619,9 @@ impl MakeMkvCli for MakeMkvMock {
         args.push("info".to_string());
         args.push(source);
 
-        match self.run(args, tx, None).await {
-            Ok(dc) => Ok(dc),
-            Err(MakeMkvError::DataError(_)) => Err(InfoError::DataError),
-        }
+        let dc = self.run(args, tx, None).await?;
+
+        Ok(dc)
     }
 
     async fn mkv(
@@ -629,7 +632,7 @@ impl MakeMkvCli for MakeMkvMock {
         scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
         logfile: Option<PathBuf>,
-    ) -> Result<DiscContent, MkvError> {
+    ) -> Result<DiscContent, MakeMkvErrorContext> {
         // e.g. `makemkvcon64.exe --noscan mkv drv:0 1 title_1.mkv`
         let mut args = Vec::new();
         match scan_mode {
@@ -645,66 +648,53 @@ impl MakeMkvCli for MakeMkvMock {
         args.push(titles);
         args.push(target.to_string_lossy().to_string());
 
-        match self.run(args, tx, logfile).await {
-            Ok(dc) => Ok(dc),
-            Err(MakeMkvError::DataError(_)) => Err(MkvError::DataError),
-        }
+        let dc = self.run(args, tx, logfile).await?;
+
+        Ok(dc)
     }
 
     async fn f(
         &self,
         drive: String,
         filename: std::path::PathBuf,
-        scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
-    ) -> Result<(), FirmwareError> {
-        let mut args = Vec::new();
-        match scan_mode {
-            ScanMode::DriveOnly => {
-                args.push("--noscan".to_string());
-            }
-            ScanMode::DriveAndDisc => {
-                // default mode, do nothing
-            }
-        }
-        args.push("f".to_string());
-        args.push("--all-yes".to_string());
-        args.push("-d".to_string());
-        args.push(drive);
-        args.push("rawflash".to_string());
-        args.push("-i".to_string());
-        args.push(filename.to_string_lossy().to_string());
+    ) -> Result<(), MakeMkvErrorContext> {
+        let args = vec![
+            "--noscan".to_string(),
+            "f".to_string(),
+            "--all-yes".to_string(),
+            "-d".to_string(),
+            drive,
+            "rawflash".to_string(),
+            "-i".to_string(),
+            filename.to_string_lossy().to_string(),
+        ];
 
-        match self.run(args, tx, None).await {
-            Ok(_) => Ok(()),
-            Err(MakeMkvError::DataError(_)) => Err(FirmwareError::DataError),
-        }
+        // ignore the provided result since it's always empty
+        // (`makemkvcon f` does not read the disc's content)
+        let _dc = self.run(args, tx, None).await?;
+
+        Ok(())
     }
 
     async fn reg(
         &self,
         license_key: String,
-        scan_mode: ScanMode,
         tx: Sender<MakeMkvEvent>,
-    ) -> Result<(), LicenseError> {
+    ) -> Result<(), MakeMkvErrorContext> {
         // e.g. `makemkvcon64.exe reg T-Wa...9e`
-        let mut args = Vec::new();
-        match scan_mode {
-            ScanMode::DriveOnly => {
-                args.push("--noscan".to_string());
-            }
-            ScanMode::DriveAndDisc => {
-                // default mode, do nothing
-            }
-        }
-        args.push("--robot".to_string());
-        args.push("reg".to_string());
-        args.push(license_key);
+        let args = vec![
+            "--noscan".to_string(),
+            "--robot".to_string(),
+            "reg".to_string(),
+            license_key,
+        ];
 
-        match self.run(args, tx, None).await {
-            Ok(_) => Ok(()),
-            Err(MakeMkvError::DataError(_)) => Err(LicenseError::DataError),
-        }
+        // ignore the provided result since it's always empty
+        // (`makemkvcon reg` does not read the disc's content)
+        let _dc = self.run(args, tx, None).await?;
+
+        Ok(())
     }
 }
 
