@@ -60,7 +60,7 @@ pub fn parse_stream_attributes(attributes: &HashMap<u32, String>) -> Option<Stre
         .trim_start()
         .to_string();
 
-    match stream_type.as_ref() {
+    let result = match stream_type.as_ref() {
         "Audio" => {
             // additional attributes for audio streams
             // -- required --
@@ -204,7 +204,19 @@ pub fn parse_stream_attributes(attributes: &HashMap<u32, String>) -> Option<Stre
             }))
         }
         _ => None,
+    };
+
+    // <sanity check>
+    // at this point there should be no unconsumed key/value pairs
+    if !attrs.is_empty() {
+        warn!(
+            "Provided stream attributes contains unknown keys: {:#?}",
+            attrs.keys()
+        );
     }
+    // </sanity check>
+
+    result
 }
 
 fn parse_as_usize(value: &str) -> Option<usize> {
